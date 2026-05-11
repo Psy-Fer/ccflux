@@ -61,6 +61,16 @@ The receiver creates the SQLite database and schema on first start. Put it behin
 | `BODY_LIMIT_KB` | `64` | Max request body size (KB) |
 | `REQUIRE_SIGNATURES` | `false` | Reject `/report` requests that lack a valid Ed25519 signature. Set to `1` or `true` once all devices have registered their keys |
 
+**Endpoints:**
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `POST /token` | Refresh token | Exchange refresh token for a short-lived access token |
+| `POST /report` | Access token | Ingest a usage payload |
+| `POST /register-key` | Access token | Register a device Ed25519 public key |
+| `GET /health` | None | DB liveness check — returns `{"status":"ok","db":"ok"}` or 503 |
+| `GET /metrics` | None | Prometheus-format counters and gauges. Restrict at the reverse proxy if needed |
+
 ### 2. Provision user refresh tokens
 
 Insert a row into `refresh_tokens` for each user:
