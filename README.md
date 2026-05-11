@@ -57,8 +57,9 @@ The receiver creates the SQLite database and schema on first start. Put it behin
 | `LISTEN_ADDR` | `0.0.0.0:8080` | Bind address |
 | `ACCESS_TOKEN_EXPIRY_SECS` | `28800` | How long access tokens live (seconds) |
 | `REFRESH_TOKEN_ROLLING_DAYS` | `90` | Each token exchange extends the refresh token by this many days |
-| `RATE_LIMIT_PER_MINUTE` | `30` | Max `/report` + `/token` calls per token per minute |
+| `RATE_LIMIT_PER_MINUTE` | `30` | Max `/report` + `/token` + `/register-key` calls per token per minute |
 | `BODY_LIMIT_KB` | `64` | Max request body size (KB) |
+| `REQUIRE_SIGNATURES` | `false` | Reject `/report` requests that lack a valid Ed25519 signature. Set to `1` or `true` once all devices have registered their keys |
 
 ### 2. Provision user refresh tokens
 
@@ -82,6 +83,14 @@ To revoke a user immediately:
 UPDATE refresh_tokens SET revoked = 1 WHERE email = 'jsmith@example.org';
 ```
 
+To revoke a specific device (e.g. lost laptop) without revoking the user:
+
+```sql
+UPDATE device_keys SET revoked = 1 WHERE public_key = '<base64-public-key>';
+```
+
+The device goes silent on its next turn. The user's other devices and their refresh token are unaffected.
+
 ### 3. Distribute the plugin
 
 Download a release and give users the `plugin/` directory. Users install it via the Claude Code plugin marketplace or by dropping it into their CC plugins directory.
@@ -98,6 +107,8 @@ Users configure the plugin with two values (via `userConfig` if CC supports it, 
 If using CC `userConfig`, the values are set via the plugin settings UI and passed automatically as `CLAUDE_PLUGIN_OPTION_API_ENDPOINT` / `CLAUDE_PLUGIN_OPTION_API_TOKEN`.
 
 The `token` field is the long-lived refresh token issued by IT. The binary automatically exchanges it for a short-lived access token on each invocation (cached in `ccflux/token_cache.json`). Users never need to rotate this manually as long as they use Claude Code within the rolling window.
+
+On first run, the binary also generates a device-specific Ed25519 signing key (`ccflux/signing_key`, readable only by the user) and registers the public key with the receiver. Every subsequent report is signed with this key. This happens silently — no user action required. If reports are generated before the key registers (e.g. network down on first session), they are queued locally and drained automatically once registration succeeds.
 
 ### 4. Query usage
 
