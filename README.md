@@ -41,7 +41,7 @@ ccflux/
 cd receiver
 cargo build --release
 
-# Set env vars and run
+# Minimal — all other values use defaults
 DATABASE_PATH=/var/lib/ccflux/ccflux.db \
 LISTEN_ADDR=0.0.0.0:8080 \
 ./target/release/ccflux-receiver
@@ -49,16 +49,38 @@ LISTEN_ADDR=0.0.0.0:8080 \
 
 The receiver creates the SQLite database and schema on first start. Put it behind a TLS-terminating reverse proxy (nginx, Caddy, etc.) — the binary speaks plain HTTP.
 
-### 2. Provision user tokens
+**All env vars with defaults:**
 
-Insert a row into `user_tokens` for each user:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_PATH` | `ccflux.db` | SQLite file path |
+| `LISTEN_ADDR` | `0.0.0.0:8080` | Bind address |
+| `ACCESS_TOKEN_EXPIRY_SECS` | `28800` | How long access tokens live (seconds) |
+| `REFRESH_TOKEN_ROLLING_DAYS` | `90` | Each token exchange extends the refresh token by this many days |
+| `RATE_LIMIT_PER_MINUTE` | `30` | Max `/report` + `/token` calls per token per minute |
+| `BODY_LIMIT_KB` | `64` | Max request body size (KB) |
+
+### 2. Provision user refresh tokens
+
+Insert a row into `refresh_tokens` for each user:
 
 ```sql
-INSERT INTO user_tokens (token, email, org_id)
-VALUES ('tok_abc123...', 'jsmith@example.org', 'engineering');
+INSERT INTO refresh_tokens (token, email, org_id, expires_at)
+VALUES (
+    'rtok_abc123...',
+    'jsmith@example.org',
+    'engineering',
+    datetime('now', '+365 days')
+);
 ```
 
-Tokens can be any opaque string. Distribute one per user.
+Tokens can be any opaque string — generate them with `openssl rand -hex 32`. Each successful use of the token automatically extends its expiry by `REFRESH_TOKEN_ROLLING_DAYS`, so active users never need a new token. Inactive users (no activity for longer than `REFRESH_TOKEN_ROLLING_DAYS`) will need a new token issued by IT.
+
+To revoke a user immediately:
+
+```sql
+UPDATE refresh_tokens SET revoked = 1 WHERE email = 'jsmith@example.org';
+```
 
 ### 3. Distribute the plugin
 
@@ -69,11 +91,13 @@ Users configure the plugin with two values (via `userConfig` if CC supports it, 
 ```json
 {
   "endpoint": "https://ccflux.yourorg.example/report",
-  "token": "their-personal-token"
+  "token": "their-personal-refresh-token"
 }
 ```
 
 If using CC `userConfig`, the values are set via the plugin settings UI and passed automatically as `CLAUDE_PLUGIN_OPTION_API_ENDPOINT` / `CLAUDE_PLUGIN_OPTION_API_TOKEN`.
+
+The `token` field is the long-lived refresh token issued by IT. The binary automatically exchanges it for a short-lived access token on each invocation (cached in `ccflux/token_cache.json`). Users never need to rotate this manually as long as they use Claude Code within the rolling window.
 
 ### 4. Query usage
 

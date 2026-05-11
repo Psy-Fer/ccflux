@@ -1,3 +1,4 @@
+-- Legacy static tokens (kept for reference; new deployments use refresh_tokens).
 CREATE TABLE IF NOT EXISTS user_tokens (
     token       TEXT PRIMARY KEY,
     email       TEXT NOT NULL,
@@ -6,11 +7,35 @@ CREATE TABLE IF NOT EXISTS user_tokens (
     revoked     INTEGER DEFAULT 0
 );
 
+-- IT-issued long-lived tokens. Users configure these once in config.json.
+-- Never sent to /report; exchanged for short-lived access tokens via /token.
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    token       TEXT PRIMARY KEY,
+    email       TEXT NOT NULL,
+    org_id      TEXT,
+    expires_at  TIMESTAMP NOT NULL,
+    revoked     INTEGER DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Short-lived access tokens issued by the /token endpoint.
+-- These are what the plugin sends to /report.
+CREATE TABLE IF NOT EXISTS access_tokens (
+    token           TEXT PRIMARY KEY,
+    refresh_token   TEXT NOT NULL REFERENCES refresh_tokens(token),
+    email           TEXT NOT NULL,
+    expires_at      TIMESTAMP NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_refresh ON access_tokens(refresh_token);
+CREATE INDEX IF NOT EXISTS idx_access_expires  ON access_tokens(expires_at);
+
 CREATE TABLE IF NOT EXISTS usage_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     received_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user_email          TEXT NOT NULL,
-    user_token          TEXT NOT NULL,
+    user_token          TEXT NOT NULL,   -- refresh_token for stable audit trail
     session_id          TEXT NOT NULL,
     turn_index          INTEGER NOT NULL,
     timestamp_utc       TIMESTAMP NOT NULL,

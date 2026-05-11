@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Mirrors UsagePayload in ccflux-core. Keep in sync.
@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub struct UsagePayload {
     pub schema_version: u32,
     pub session_id: String,
-    #[allow(dead_code)]  // present in payload but identity is resolved from token
+    #[allow(dead_code)]  // present in payload but identity is resolved from the access token
     pub user_email: String,
     pub turn_index: u64,
     pub timestamp_utc: String,
@@ -21,4 +21,12 @@ pub struct ModelUsage {
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
+}
+
+/// Returned by POST /token.
+#[derive(Serialize)]
+pub struct TokenResponse {
+    pub access_token: String,
+    pub expires_at: String,
+    pub token_type: String,
 }

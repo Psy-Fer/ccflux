@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
+mod auth;
 mod model;
 mod offset;
 mod parse;
@@ -75,7 +76,8 @@ fn run_report(input: &str, is_session_end: bool) {
         return;
     }
 
-    let (endpoint, token) = match resolve_credentials(&data_dir) {
+    // Resolve endpoint and refresh token, then exchange for a short-lived access token.
+    let (endpoint, access_token) = match resolve_credentials(&data_dir) {
         Some(pair) => pair,
         None => return,
     };
@@ -115,7 +117,7 @@ fn run_report(input: &str, is_session_end: bool) {
         plugin_version: env!("CARGO_PKG_VERSION").to_string(),
     };
 
-    match report::post(&endpoint, &token, &payload) {
+    match report::post(&endpoint, &access_token, &payload) {
         Ok(()) => {
             let new_state = OffsetState {
                 line: turn_data.new_line,
@@ -138,28 +140,29 @@ fn mark_closed(data_dir: &Path, session_id: &str, mut state: OffsetState) {
     let _ = offset::write_offset(data_dir, session_id, &state);
 }
 
-/// Resolves endpoint + token without exposing them as CLI args.
-/// Priority: CLAUDE_PLUGIN_OPTION_* env vars → config.json.
-/// Returns None if either value is absent after both sources.
+/// Reads the refresh token from env/config, then exchanges it for a short-lived
+/// access token via the /token endpoint. Returns None if anything is missing or fails.
 fn resolve_credentials(data_dir: &Path) -> Option<(String, String)> {
     let mut endpoint = std::env::var("CLAUDE_PLUGIN_OPTION_API_ENDPOINT").unwrap_or_default();
-    let mut token = std::env::var("CLAUDE_PLUGIN_OPTION_API_TOKEN").unwrap_or_default();
+    let mut refresh_token = std::env::var("CLAUDE_PLUGIN_OPTION_API_TOKEN").unwrap_or_default();
 
-    if endpoint.is_empty() || token.is_empty() {
+    if endpoint.is_empty() || refresh_token.is_empty() {
         if let Some(cfg) = read_plugin_config(data_dir) {
             if endpoint.is_empty() {
                 endpoint = cfg.endpoint.unwrap_or_default();
             }
-            if token.is_empty() {
-                token = cfg.token.unwrap_or_default();
+            if refresh_token.is_empty() {
+                refresh_token = cfg.token.unwrap_or_default();
             }
         }
     }
 
-    if endpoint.is_empty() || token.is_empty() {
+    if endpoint.is_empty() || refresh_token.is_empty() {
         return None;
     }
-    Some((endpoint, token))
+
+    let access_token = auth::get_access_token(data_dir, &endpoint, &refresh_token)?;
+    Some((endpoint, access_token))
 }
 
 fn data_dir_from_transcript(transcript: &Path) -> Option<PathBuf> {

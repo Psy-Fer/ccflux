@@ -31,7 +31,7 @@ pub struct UsageData {
     pub cache_creation_input_tokens: Option<u64>,
 }
 
-/// Payload POSTed to the receiver.
+/// Payload POSTed to the receiver /report endpoint.
 #[derive(Serialize)]
 pub struct UsagePayload {
     pub schema_version: u32,
@@ -80,10 +80,27 @@ pub struct OauthAccount {
     pub email_address: Option<String>,
 }
 
-/// Optional pre-configured endpoint/token stored at <data_dir>/ccflux/config.json.
-/// Used when CLAUDE_PLUGIN_OPTION_* env vars are not set.
+/// Stored at <data_dir>/ccflux/config.json.
+/// `token` here is the long-lived refresh token issued by IT.
 #[derive(Deserialize)]
 pub struct PluginConfig {
     pub endpoint: Option<String>,
     pub token: Option<String>,
+}
+
+/// Cached short-lived access token stored at <data_dir>/ccflux/token_cache.json.
+#[derive(Serialize, Deserialize)]
+pub struct TokenCache {
+    pub access_token: String,
+    /// RFC 3339 expiry timestamp.
+    pub expires_at: String,
+}
+
+/// Response from the receiver's /token endpoint.
+#[derive(Deserialize)]
+pub struct TokenResponse {
+    pub access_token: String,
+    pub expires_at: String,
+    #[allow(dead_code)]
+    pub token_type: String,
 }

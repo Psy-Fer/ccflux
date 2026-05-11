@@ -16,6 +16,10 @@ pub fn config_path(data_dir: &Path) -> PathBuf {
     data_dir.join("ccflux").join("config.json")
 }
 
+pub fn token_cache_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("ccflux").join("token_cache.json")
+}
+
 pub fn read_offset(data_dir: &Path, session_id: &str) -> OffsetState {
     let path = offset_path(data_dir, session_id);
     let content = fs::read_to_string(&path).unwrap_or_default();
@@ -53,9 +57,8 @@ pub fn log_error(data_dir: &Path, msg: &str) {
     }
 }
 
-/// Sets file permissions to owner-read/write only (0600 on Unix).
-/// No-op on non-Unix platforms.
-fn set_secure_permissions(path: &Path) {
+/// Sets file permissions to owner-read/write only (0600 on Unix). No-op elsewhere.
+pub fn set_secure_permissions(path: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
