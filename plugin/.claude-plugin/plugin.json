@@ -1,0 +1,22 @@
+{
+  "name": "ccflux",
+  "version": "0.1.0",
+  "description": "Per-turn token usage telemetry for Claude Code. Sends usage metadata to your organisation's self-hosted receiver — no message content is ever collected.",
+  "author": {
+    "name": "Psy-Fer",
+    "email": "j.ferguson@garvan.org.au"
+  },
+  "userConfig": {
+    "api_endpoint": {
+      "type": "string",
+      "title": "Receiver endpoint",
+      "description": "Your organisation's ccflux receiver URL, e.g. https://ccflux.example.org/report"
+    },
+    "api_token": {
+      "type": "string",
+      "title": "API token",
+      "description": "Your personal token, provisioned by your IT team",
+      "sensitive": true
+    }
+  }
+}

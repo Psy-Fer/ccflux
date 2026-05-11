@@ -1,2 +1,136 @@
 # ccflux
-claude-code plugin to send token usage to endpoint for enterprise stats
+
+A Claude Code plugin that collects opt-in, per-turn token usage telemetry and ships it to a self-hosted receiver. Built for organisations on seat-based Enterprise Claude Code plans where Anthropic's Analytics dashboard does not expose per-user token counts.
+
+**What it collects:** token counts, model name, session/turn identifiers, timestamps.  
+**What it never collects:** message content, prompts, file paths, code, or anything identifying project content.
+
+---
+
+## How it works
+
+A small Rust binary is invoked by Claude Code hook events (`SessionStart`, `Stop`, `SessionEnd`). After each assistant turn, it reads the new usage data from the session transcript, aggregates token counts by model, and POSTs a JSON payload to your organisation's receiver endpoint. The receiver stores events in SQLite for querying.
+
+Multiple Claude Code aliases (e.g. `claude` for personal, `claude-work` for work) are handled automatically — the plugin only reports for the CC instance it is installed in, determined by comparing the transcript path against `CLAUDE_PLUGIN_ROOT`. An unconfigured installation does nothing silently.
+
+---
+
+## Repository layout
+
+```
+ccflux/
+├── ccflux-core/        # Rust binary — plugin-side CLI
+├── receiver/           # Rust Axum + SQLite self-hosted collector
+├── plugin/             # CC plugin files (distribute to users)
+│   ├── .claude-plugin/ # Plugin manifest
+│   ├── hooks/          # Hook → script mapping
+│   ├── scripts/        # Wrapper scripts (sh + ps1)
+│   └── bin/            # Pre-built binaries (populated by CI)
+├── dashboard/          # Example SQL queries for IT/admins
+├── schema.sql          # SQLite schema
+└── .github/workflows/  # Cross-compilation + release workflow
+```
+
+---
+
+## Deploying for your organisation
+
+### 1. Deploy the receiver
+
+```bash
+cd receiver
+cargo build --release
+
+# Set env vars and run
+DATABASE_PATH=/var/lib/ccflux/ccflux.db \
+LISTEN_ADDR=0.0.0.0:8080 \
+./target/release/ccflux-receiver
+```
+
+The receiver creates the SQLite database and schema on first start. Put it behind a TLS-terminating reverse proxy (nginx, Caddy, etc.) — the binary speaks plain HTTP.
+
+### 2. Provision user tokens
+
+Insert a row into `user_tokens` for each user:
+
+```sql
+INSERT INTO user_tokens (token, email, org_id)
+VALUES ('tok_abc123...', 'jsmith@example.org', 'engineering');
+```
+
+Tokens can be any opaque string. Distribute one per user.
+
+### 3. Distribute the plugin
+
+Download a release and give users the `plugin/` directory. Users install it via the Claude Code plugin marketplace or by dropping it into their CC plugins directory.
+
+Users configure the plugin with two values (via `userConfig` if CC supports it, or by creating `~/.claude-work/ccflux/config.json`):
+
+```json
+{
+  "endpoint": "https://ccflux.yourorg.example/report",
+  "token": "their-personal-token"
+}
+```
+
+If using CC `userConfig`, the values are set via the plugin settings UI and passed automatically as `CLAUDE_PLUGIN_OPTION_API_ENDPOINT` / `CLAUDE_PLUGIN_OPTION_API_TOKEN`.
+
+### 4. Query usage
+
+See `dashboard/` for ready-made SQL queries:
+
+- `usage_by_user.sql` — total tokens per user, last 30 days
+- `five_hour_windows.sql` — usage within 5-hour reset windows (seat pressure indicator)
+- `model_breakdown.sql` — token consumption and cache hit rate by model
+
+---
+
+## Building from source
+
+```bash
+# Core binary
+cd ccflux-core && cargo build --release
+
+# Receiver
+cd receiver && cargo build --release
+
+# Cross-compile all targets (requires `cross`)
+cargo install cross
+cross build --release --target aarch64-unknown-linux-gnu  # Linux ARM
+```
+
+Releases are built automatically by `.github/workflows/release.yml` on tag push and attached to the GitHub release. Download a release and drop the binaries into `plugin/bin/` — no build step required for end-users.
+
+---
+
+## Forking for your organisation
+
+1. Fork this repo
+2. Deploy `receiver/` to your internal infrastructure
+3. Provision tokens in the `user_tokens` table
+4. Tag a release — CI cross-compiles all binaries and attaches them
+5. Distribute install instructions pointing at your fork
+
+The receiver contains no organisation-specific logic. All org customisation lives in the `user_tokens` table and your reverse proxy config.
+
+---
+
+## Platform support
+
+| Platform | Binary |
+|----------|--------|
+| Linux x86_64 | `ccflux-linux-x86_64` |
+| Linux aarch64 | `ccflux-linux-aarch64` |
+| macOS x86_64 | `ccflux-macos-x86_64` |
+| macOS Apple Silicon | `ccflux-macos-aarch64` |
+| Windows x86_64 | `ccflux-windows-x86_64.exe` |
+
+WSL is treated as Linux. Native Windows uses the `.ps1` wrapper scripts.
+
+---
+
+## Known limitations
+
+- **SessionEnd unreliability:** CC kills `SessionEnd` hooks before async work completes. The `nohup`/`disown` pattern mitigates this but is not guaranteed. `Stop`-per-turn is the primary mechanism.
+- **SIGKILL crashes:** No hooks fire on SIGKILL. At most one in-flight turn is lost per crash.
+- **JSONL schema instability:** CC's transcript format is undocumented. If the parser starts returning empty data, check whether field names have changed.
