@@ -6,9 +6,12 @@ mod auth;
 mod model;
 mod offset;
 mod parse;
+mod queue;
 mod report;
+mod signing;
 
 use model::{ClaudeConfig, HookInput, OffsetState, PluginConfig, UsagePayload};
+use report::ReportStatus;
 
 #[derive(Parser)]
 #[command(name = "ccflux")]
@@ -58,6 +61,10 @@ fn run_init(input: &str) {
     };
     let session_start = parse::first_timestamp(transcript);
     let _ = offset::init_offset(&data_dir, &hook.session_id, &session_start);
+
+    // Generate the signing keypair on first session if not already present.
+    // Registration happens in run_report once we have credentials.
+    signing::load_or_generate(&data_dir);
 }
 
 fn run_report(input: &str, is_session_end: bool) {
@@ -76,11 +83,24 @@ fn run_report(input: &str, is_session_end: bool) {
         return;
     }
 
-    // Resolve endpoint and refresh token, then exchange for a short-lived access token.
+    // If the device key has been revoked by IT, go silent with a logged message.
+    if signing::is_revoked(&data_dir) {
+        offset::log_error(&data_dir, "ccflux: device key revoked — contact your IT admin to re-provision");
+        return;
+    }
+
     let (endpoint, access_token) = match resolve_credentials(&data_dir) {
         Some(pair) => pair,
         None => return,
     };
+
+    // Load or generate the device signing key.
+    let device_key = signing::load_or_generate(&data_dir);
+
+    // If not yet registered, attempt registration on every turn until it succeeds.
+    if !signing::is_registered(&data_dir) {
+        signing::try_register(&data_dir, &endpoint, &access_token, &device_key);
+    }
 
     let state = offset::read_offset(&data_dir, &hook.session_id);
 
@@ -117,21 +137,94 @@ fn run_report(input: &str, is_session_end: bool) {
         plugin_version: env!("CARGO_PKG_VERSION").to_string(),
     };
 
-    match report::post(&endpoint, &access_token, &payload) {
-        Ok(()) => {
-            let new_state = OffsetState {
-                line: turn_data.new_line,
-                turn: state.turn + 1,
-                session_start: state.session_start,
-                closed: is_session_end,
-            };
-            if let Err(e) = offset::write_offset(&data_dir, &hook.session_id, &new_state) {
-                offset::log_error(&data_dir, &format!("offset write: {e}"));
+    let body = match serde_json::to_string(&payload) {
+        Ok(b) => b,
+        Err(e) => {
+            offset::log_error(&data_dir, &format!("serialize: {e}"));
+            return;
+        }
+    };
+
+    let queue_path = offset::pending_reports_path(&data_dir);
+
+    if signing::is_registered(&data_dir) {
+        match report::post(&endpoint, &access_token, &body, &device_key) {
+            ReportStatus::Accepted => {
+                advance_offset(&data_dir, &hook.session_id, &state, turn_data.new_line, is_session_end);
+                drain_one_queued(&data_dir, &endpoint, &access_token, &device_key);
+            }
+            ReportStatus::KeyRevoked => {
+                offset::log_error(&data_dir, "ccflux: device key revoked — contact your IT admin to re-provision");
+                queue::clear(&queue_path);
+                signing::mark_revoked(&data_dir);
+            }
+            ReportStatus::TimestampStale => {
+                // Shouldn't happen for live reports (clock skew >5min is unusual).
+                offset::log_error(&data_dir, "ccflux: request rejected as timestamp-stale (clock skew?)");
+            }
+            ReportStatus::SignatureInvalid => {
+                offset::log_error(&data_dir, "ccflux: signature-invalid — this is unexpected, retrying next turn");
+            }
+            ReportStatus::KeyNotRegistered => {
+                // Race condition: mark as unregistered and queue for next turn.
+                let _ = std::fs::remove_file(offset::pending_reports_path(&data_dir).with_file_name("key_registered"));
+                queue::enqueue(&queue_path, &body);
+                advance_offset(&data_dir, &hook.session_id, &state, turn_data.new_line, is_session_end);
+            }
+            ReportStatus::Failed(e) => {
+                offset::log_error(&data_dir, &format!("POST failed: {e}"));
             }
         }
-        Err(e) => {
-            offset::log_error(&data_dir, &format!("POST failed: {e}"));
+    } else {
+        // Key not yet registered: store locally and advance offset.
+        queue::enqueue(&queue_path, &body);
+        advance_offset(&data_dir, &hook.session_id, &state, turn_data.new_line, is_session_end);
+    }
+}
+
+fn drain_one_queued(data_dir: &Path, endpoint: &str, access_token: &str, key: &signing::DeviceKey) {
+    let queue_path = offset::pending_reports_path(data_dir);
+    if let Some(queued_body) = queue::drain_one(&queue_path) {
+        match report::post(endpoint, access_token, &queued_body, key) {
+            ReportStatus::Accepted => {}
+            ReportStatus::TimestampStale => {
+                // The queued payload's event time may be old, but the HTTP timestamp
+                // we send is always fresh. If the receiver still rejects it, discard —
+                // there's no way to send it without a valid timestamp window.
+                offset::log_error(data_dir, "ccflux: queued report rejected as timestamp-stale, discarding");
+            }
+            ReportStatus::KeyRevoked => {
+                offset::log_error(data_dir, "ccflux: device key revoked — contact your IT admin to re-provision");
+                queue::clear(&queue_path);
+                signing::mark_revoked(data_dir);
+            }
+            ReportStatus::Failed(e) => {
+                // Put it back at the front of the queue.
+                let existing = std::fs::read_to_string(&queue_path).unwrap_or_default();
+                let requeued = format!("{queued_body}\n{existing}");
+                let _ = std::fs::write(&queue_path, requeued.as_bytes());
+                offset::log_error(data_dir, &format!("queued POST failed: {e}"));
+            }
+            _ => {}
         }
+    }
+}
+
+fn advance_offset(
+    data_dir: &Path,
+    session_id: &str,
+    state: &OffsetState,
+    new_line: usize,
+    is_session_end: bool,
+) {
+    let new_state = OffsetState {
+        line: new_line,
+        turn: state.turn + 1,
+        session_start: state.session_start.clone(),
+        closed: is_session_end,
+    };
+    if let Err(e) = offset::write_offset(data_dir, session_id, &new_state) {
+        offset::log_error(data_dir, &format!("offset write: {e}"));
     }
 }
 
@@ -140,8 +233,6 @@ fn mark_closed(data_dir: &Path, session_id: &str, mut state: OffsetState) {
     let _ = offset::write_offset(data_dir, session_id, &state);
 }
 
-/// Reads the refresh token from env/config, then exchanges it for a short-lived
-/// access token via the /token endpoint. Returns None if anything is missing or fails.
 fn resolve_credentials(data_dir: &Path) -> Option<(String, String)> {
     let mut endpoint = std::env::var("CLAUDE_PLUGIN_OPTION_API_ENDPOINT").unwrap_or_default();
     let mut refresh_token = std::env::var("CLAUDE_PLUGIN_OPTION_API_TOKEN").unwrap_or_default();

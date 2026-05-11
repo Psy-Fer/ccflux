@@ -20,6 +20,10 @@ pub fn token_cache_path(data_dir: &Path) -> PathBuf {
     data_dir.join("ccflux").join("token_cache.json")
 }
 
+pub fn pending_reports_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("ccflux").join("pending_reports.jsonl")
+}
+
 pub fn read_offset(data_dir: &Path, session_id: &str) -> OffsetState {
     let path = offset_path(data_dir, session_id);
     let content = fs::read_to_string(&path).unwrap_or_default();

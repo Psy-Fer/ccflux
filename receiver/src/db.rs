@@ -1,8 +1,157 @@
+use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{Duration, Utc};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
 use crate::model::{TokenResponse, UsagePayload};
+
+pub enum SigVerifyResult {
+    Valid,
+    NotPresent,
+    TimestampMissing,
+    TimestampStale,
+    MalformedHeader,
+    KeyNotRegistered,
+    KeyRevoked,
+    Invalid,
+}
+
+/// Registers a device public key for a given email. Idempotent — re-registering
+/// the same key updates last_seen_at only.
+pub async fn register_device_key(
+    pool: &SqlitePool,
+    email: &str,
+    public_key: &str,
+    device_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO device_keys (public_key, email, device_id, last_seen_at)
+         VALUES (?, ?, ?, datetime('now'))
+         ON CONFLICT(public_key) DO UPDATE SET last_seen_at = datetime('now')",
+    )
+    .bind(public_key)
+    .bind(email)
+    .bind(device_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Verifies the Ed25519 signature on a /report request.
+///
+/// Signature header format: `ed25519 <sig_b64> <pubkey_b64>`
+/// Signed message: `body_bytes ++ b'\n' ++ timestamp_header_value`
+pub async fn verify_signature(
+    pool: &SqlitePool,
+    email: &str,
+    body: &[u8],
+    sig_header: Option<&str>,
+    ts_header: Option<&str>,
+) -> Result<SigVerifyResult, sqlx::Error> {
+    let sig_header = match sig_header {
+        Some(h) => h,
+        None => return Ok(SigVerifyResult::NotPresent),
+    };
+
+    let ts_str = match ts_header {
+        Some(t) => t,
+        None => return Ok(SigVerifyResult::TimestampMissing),
+    };
+
+    // Check timestamp is within 5 minutes.
+    let ts = match chrono::DateTime::parse_from_rfc3339(ts_str) {
+        Ok(t) => t,
+        Err(_) => return Ok(SigVerifyResult::MalformedHeader),
+    };
+    let age_secs = (Utc::now() - ts.with_timezone(&Utc)).num_seconds().abs();
+    if age_secs > 300 {
+        return Ok(SigVerifyResult::TimestampStale);
+    }
+
+    // Parse header: "ed25519 <sig_b64> <pubkey_b64>"
+    let parts: Vec<&str> = sig_header.splitn(3, ' ').collect();
+    if parts.len() != 3 || parts[0] != "ed25519" {
+        return Ok(SigVerifyResult::MalformedHeader);
+    }
+    let sig_b64 = parts[1];
+    let pubkey_b64 = parts[2];
+
+    let sig_bytes = match STANDARD.decode(sig_b64) {
+        Ok(b) => b,
+        Err(_) => return Ok(SigVerifyResult::MalformedHeader),
+    };
+    let pubkey_bytes = match STANDARD.decode(pubkey_b64) {
+        Ok(b) => b,
+        Err(_) => return Ok(SigVerifyResult::MalformedHeader),
+    };
+
+    let sig_arr: [u8; 64] = match sig_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return Ok(SigVerifyResult::MalformedHeader),
+    };
+    let pubkey_arr: [u8; 32] = match pubkey_bytes.try_into() {
+        Ok(a) => a,
+        Err(_) => return Ok(SigVerifyResult::MalformedHeader),
+    };
+
+    // Look up the key for this email in device_keys.
+    let row = sqlx::query(
+        "SELECT revoked FROM device_keys WHERE public_key = ? AND email = ?",
+    )
+    .bind(pubkey_b64)
+    .bind(email)
+    .fetch_optional(pool)
+    .await?;
+
+    match row {
+        None => return Ok(SigVerifyResult::KeyNotRegistered),
+        Some(r) => {
+            if r.get::<i64, _>("revoked") != 0 {
+                return Ok(SigVerifyResult::KeyRevoked);
+            }
+        }
+    }
+
+    // Verify: sign(body ++ '\n' ++ timestamp)
+    let verifying_key = match VerifyingKey::from_bytes(&pubkey_arr) {
+        Ok(k) => k,
+        Err(_) => return Ok(SigVerifyResult::MalformedHeader),
+    };
+    let signature = Signature::from_bytes(&sig_arr);
+
+    let mut msg = body.to_vec();
+    msg.push(b'\n');
+    msg.extend_from_slice(ts_str.as_bytes());
+
+    match verifying_key.verify(&msg, &signature) {
+        Ok(()) => {
+            // Update last_seen_at.
+            let _ = sqlx::query(
+                "UPDATE device_keys SET last_seen_at = datetime('now') WHERE public_key = ?",
+            )
+            .bind(pubkey_b64)
+            .execute(pool)
+            .await;
+            Ok(SigVerifyResult::Valid)
+        }
+        Err(_) => Ok(SigVerifyResult::Invalid),
+    }
+}
+
+/// Returns the email associated with a valid (non-expired) access token, or None.
+pub async fn email_from_access_token(
+    pool: &SqlitePool,
+    access_token: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT email FROM access_tokens WHERE token = ? AND expires_at > datetime('now')",
+    )
+    .bind(access_token)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.get::<String, _>("email")))
+}
 
 pub async fn init(path: &str) -> Result<SqlitePool, sqlx::Error> {
     let url = format!("sqlite://{path}?mode=rwc");

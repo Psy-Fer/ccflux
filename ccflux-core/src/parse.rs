@@ -62,7 +62,7 @@ pub fn collect_since_offset(
             last_timestamp = ts;
         }
 
-        let mu = models.entry(model).or_insert_with(ModelUsage::default);
+        let mu = models.entry(model).or_default();
         mu.input_tokens += usage.input_tokens.unwrap_or(0);
         mu.output_tokens += usage.output_tokens.unwrap_or(0);
         mu.cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);

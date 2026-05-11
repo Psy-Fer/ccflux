@@ -131,11 +131,11 @@ Releases are built automatically by `.github/workflows/release.yml` on tag push 
 
 1. Fork this repo
 2. Deploy `receiver/` to your internal infrastructure
-3. Provision tokens in the `user_tokens` table
+3. Provision refresh tokens in the `refresh_tokens` table
 4. Tag a release — CI cross-compiles all binaries and attaches them
 5. Distribute install instructions pointing at your fork
 
-The receiver contains no organisation-specific logic. All org customisation lives in the `user_tokens` table and your reverse proxy config.
+The receiver contains no organisation-specific logic. All org customisation lives in the `refresh_tokens` table and your reverse proxy config.
 
 ---
 

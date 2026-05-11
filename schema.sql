@@ -31,6 +31,19 @@ CREATE TABLE IF NOT EXISTS access_tokens (
 CREATE INDEX IF NOT EXISTS idx_access_refresh ON access_tokens(refresh_token);
 CREATE INDEX IF NOT EXISTS idx_access_expires  ON access_tokens(expires_at);
 
+-- Per-device Ed25519 public keys. One row per device per user.
+-- Revoke a device: UPDATE device_keys SET revoked = 1 WHERE public_key = '...';
+CREATE TABLE IF NOT EXISTS device_keys (
+    public_key      TEXT PRIMARY KEY,       -- base64-encoded 32-byte Ed25519 public key
+    email           TEXT NOT NULL,
+    device_id       TEXT,                   -- hostname at registration time (informational)
+    registered_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at    TIMESTAMP,
+    revoked         INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_keys_email ON device_keys(email);
+
 CREATE TABLE IF NOT EXISTS usage_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     received_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

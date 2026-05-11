@@ -30,3 +30,10 @@ pub struct TokenResponse {
     pub expires_at: String,
     pub token_type: String,
 }
+
+/// Body of POST /register-key.
+#[derive(Deserialize)]
+pub struct RegisterKeyRequest {
+    pub public_key: String,
+    pub device_id: String,
+}

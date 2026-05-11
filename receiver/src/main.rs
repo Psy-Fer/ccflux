@@ -3,19 +3,22 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::{
+    body::Bytes,
     extract::{DefaultBodyLimit, State},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::post,
-    Json, Router,
+    Router,
 };
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
 mod db;
+mod keys;
 mod model;
 mod token;
 
-use model::UsagePayload;
+use db::SigVerifyResult;
 
 #[derive(Clone)]
 struct AppState {
@@ -23,6 +26,7 @@ struct AppState {
     rate_limiter: Arc<RateLimiter>,
     access_token_expiry_secs: u64,
     refresh_token_rolling_days: i64,
+    require_signatures: bool,
 }
 
 #[tokio::main]
@@ -37,6 +41,9 @@ async fn main() {
     let refresh_token_rolling_days: i64 = env_or("REFRESH_TOKEN_ROLLING_DAYS", 90);
     let rate_limit_per_minute: u32 = env_or("RATE_LIMIT_PER_MINUTE", 30);
     let body_limit_kb: usize = env_or("BODY_LIMIT_KB", 64);
+    let require_signatures: bool = std::env::var("REQUIRE_SIGNATURES")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
     println!("ccflux-receiver config:");
     println!("  DATABASE_PATH              = {db_path}");
@@ -45,6 +52,7 @@ async fn main() {
     println!("  REFRESH_TOKEN_ROLLING_DAYS = {refresh_token_rolling_days}");
     println!("  RATE_LIMIT_PER_MINUTE      = {rate_limit_per_minute}");
     println!("  BODY_LIMIT_KB              = {body_limit_kb}");
+    println!("  REQUIRE_SIGNATURES         = {require_signatures}");
 
     let pool = db::init(&db_path).await.expect("failed to init database");
     let pool = Arc::new(pool);
@@ -54,6 +62,7 @@ async fn main() {
         rate_limiter: Arc::new(RateLimiter::new(rate_limit_per_minute)),
         access_token_expiry_secs,
         refresh_token_rolling_days,
+        require_signatures,
     };
 
     // Purge expired access tokens once per hour.
@@ -72,6 +81,7 @@ async fn main() {
     let app = Router::new()
         .route("/token", post(token::handle_token))
         .route("/report", post(handle_report))
+        .route("/register-key", post(keys::handle_register_key))
         .layer(DefaultBodyLimit::max(body_limit_kb * 1024))
         .with_state(state);
 
@@ -83,25 +93,77 @@ async fn main() {
 async fn handle_report(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(payload): Json<UsagePayload>,
-) -> StatusCode {
+    body: Bytes,
+) -> Response {
     let access_token = match extract_bearer(&headers) {
         Some(t) => t,
-        None => return StatusCode::UNAUTHORIZED,
+        None => return StatusCode::UNAUTHORIZED.into_response(),
     };
 
     if !state.rate_limiter.allow(&access_token).await {
-        return StatusCode::TOO_MANY_REQUESTS;
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
 
-    match db::insert_usage(&state.pool, &access_token, &payload).await {
-        Ok(true) => StatusCode::OK,
-        Ok(false) => StatusCode::UNAUTHORIZED,
+    // Resolve email (needed for signature lookup) before verifying.
+    let email = match db::email_from_access_token(&state.pool, &access_token).await {
+        Ok(Some(e)) => e,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
         Err(e) => {
             eprintln!("db error: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let sig_header = headers.get("x-ccflux-signature").and_then(|v| v.to_str().ok());
+    let ts_header = headers.get("x-ccflux-timestamp").and_then(|v| v.to_str().ok());
+
+    match db::verify_signature(&state.pool, &email, &body, sig_header, ts_header).await {
+        Ok(SigVerifyResult::Valid) => {}
+        Ok(SigVerifyResult::NotPresent) if !state.require_signatures => {}
+        Ok(SigVerifyResult::NotPresent) => {
+            return sig_error("signature-required");
+        }
+        Ok(SigVerifyResult::TimestampMissing) => {
+            return sig_error("timestamp-missing");
+        }
+        Ok(SigVerifyResult::TimestampStale) => {
+            return sig_error("timestamp-stale");
+        }
+        Ok(SigVerifyResult::MalformedHeader) => {
+            return sig_error("signature-invalid");
+        }
+        Ok(SigVerifyResult::KeyNotRegistered) => {
+            return sig_error("key-not-registered");
+        }
+        Ok(SigVerifyResult::KeyRevoked) => {
+            return sig_error("key-revoked");
+        }
+        Ok(SigVerifyResult::Invalid) => {
+            return sig_error("signature-invalid");
+        }
+        Err(e) => {
+            eprintln!("signature verify error: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
+
+    let payload: model::UsagePayload = match serde_json::from_slice(&body) {
+        Ok(p) => p,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+
+    match db::insert_usage(&state.pool, &access_token, &payload).await {
+        Ok(true) => StatusCode::OK.into_response(),
+        Ok(false) => StatusCode::UNAUTHORIZED.into_response(),
+        Err(e) => {
+            eprintln!("db error: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+fn sig_error(code: &'static str) -> Response {
+    (StatusCode::FORBIDDEN, [("x-ccflux-error", code)]).into_response()
 }
 
 fn extract_bearer(headers: &HeaderMap) -> Option<String> {
@@ -109,7 +171,6 @@ fn extract_bearer(headers: &HeaderMap) -> Option<String> {
     val.strip_prefix("Bearer ").map(|s| s.to_string())
 }
 
-/// Reads an env var and parses it, falling back to `default` on missing or invalid values.
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
     std::env::var(key)
         .ok()
@@ -117,7 +178,6 @@ fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
         .unwrap_or(default)
 }
 
-/// Per-token sliding-window rate limiter.
 struct RateLimiter {
     windows: Mutex<HashMap<String, (u32, Instant)>>,
     max_per_minute: u32,
