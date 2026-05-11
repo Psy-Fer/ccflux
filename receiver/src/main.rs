@@ -228,3 +228,280 @@ impl RateLimiter {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::routing::get;
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use ed25519_dalek::{Signer, SigningKey};
+    use tower::util::ServiceExt;
+
+    async fn test_state() -> (AppState, Arc<SqlitePool>) {
+        let pool = Arc::new(db::init_test_pool().await);
+        let state = AppState {
+            pool: pool.clone(),
+            rate_limiter: Arc::new(RateLimiter::new(100)),
+            metrics: Arc::new(Metrics::new()),
+            access_token_expiry_secs: 3600,
+            refresh_token_rolling_days: 90,
+            require_signatures: false,
+        };
+        (state, pool)
+    }
+
+    fn build_app(state: AppState) -> Router {
+        Router::new()
+            .route("/token", post(token::handle_token))
+            .route("/report", post(handle_report))
+            .route("/register-key", post(keys::handle_register_key))
+            .route("/health", get(health::handle_health))
+            .route("/metrics", get(health::handle_metrics))
+            .with_state(state)
+    }
+
+    async fn body_str(resp: axum::http::Response<Body>) -> String {
+        let b = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        String::from_utf8(b.to_vec()).unwrap()
+    }
+
+    async fn seed_refresh_token(pool: &SqlitePool, token: &str, email: &str) {
+        sqlx::query(
+            "INSERT INTO refresh_tokens (token, email, expires_at) \
+             VALUES (?, ?, datetime('now', '+365 days'))",
+        )
+        .bind(token)
+        .bind(email)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn get_access_token(state: &AppState, refresh_token: &str) -> String {
+        let resp = build_app(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/token")
+                    .header("authorization", format!("Bearer {refresh_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "expected 200 from /token");
+        let body = body_str(resp).await;
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        v["access_token"].as_str().unwrap().to_string()
+    }
+
+    // --- /health ---
+
+    #[tokio::test]
+    async fn health_returns_ok() {
+        let (state, _pool) = test_state().await;
+        let resp = build_app(state)
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(body_str(resp).await.contains("\"ok\""));
+    }
+
+    // --- /metrics ---
+
+    #[tokio::test]
+    async fn metrics_content_type_and_format() {
+        let (state, _pool) = test_state().await;
+        let resp = build_app(state)
+            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp.headers()["content-type"].to_str().unwrap();
+        assert!(ct.contains("text/plain"));
+        assert!(ct.contains("0.0.4"));
+        let body = body_str(resp).await;
+        assert!(body.contains("ccflux_reports_accepted_total"));
+        assert!(body.contains("ccflux_active_access_tokens"));
+    }
+
+    // --- /token ---
+
+    #[tokio::test]
+    async fn token_unknown_refresh_returns_401() {
+        let (state, _pool) = test_state().await;
+        let resp = build_app(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/token")
+                    .header("authorization", "Bearer unknown-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn token_valid_refresh_returns_access_token() {
+        let (state, pool) = test_state().await;
+        seed_refresh_token(&pool, "rtok_test", "user@example.org").await;
+        let access = get_access_token(&state, "rtok_test").await;
+        assert!(!access.is_empty());
+    }
+
+    // --- /report ---
+
+    #[tokio::test]
+    async fn report_no_auth_returns_401() {
+        let (state, _pool) = test_state().await;
+        let resp = build_app(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/report")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn report_valid_unsigned_accepted_when_not_required() {
+        let (state, pool) = test_state().await;
+        seed_refresh_token(&pool, "rtok_report", "reporter@example.org").await;
+        let access = get_access_token(&state, "rtok_report").await;
+
+        let payload = serde_json::json!({
+            "schema_version": 1,
+            "session_id": "sess-abc",
+            "user_email": "reporter@example.org",
+            "turn_index": 0,
+            "timestamp_utc": "2026-05-11T03:00:00Z",
+            "models": {
+                "claude-sonnet-4-6": {
+                    "input_tokens": 100, "output_tokens": 50,
+                    "cache_read_tokens": 0, "cache_write_tokens": 0
+                }
+            },
+            "plugin_version": "0.1.0"
+        });
+
+        let resp = build_app(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/report")
+                    .header("authorization", format!("Bearer {access}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn report_missing_sig_rejected_when_required() {
+        let (state, pool) = test_state().await;
+        // Override require_signatures
+        let state = AppState { require_signatures: true, ..state };
+        seed_refresh_token(&pool, "rtok_sig", "siguser@example.org").await;
+        let access = get_access_token(&state, "rtok_sig").await;
+
+        let payload = serde_json::json!({
+            "schema_version": 1, "session_id": "sess-sig", "user_email": "siguser@example.org",
+            "turn_index": 0, "timestamp_utc": "2026-05-11T03:00:00Z",
+            "models": {"claude-sonnet-4-6": {"input_tokens":1,"output_tokens":1,"cache_read_tokens":0,"cache_write_tokens":0}},
+            "plugin_version": "0.1.0"
+        });
+
+        let resp = build_app(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/report")
+                    .header("authorization", format!("Bearer {access}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let err = resp.headers().get("x-ccflux-error").unwrap().to_str().unwrap();
+        assert_eq!(err, "signature-required");
+    }
+
+    #[tokio::test]
+    async fn report_full_signed_flow() {
+        let (state, pool) = test_state().await;
+        let state = AppState { require_signatures: true, ..state };
+        seed_refresh_token(&pool, "rtok_full", "fulluser@example.org").await;
+        let access = get_access_token(&state, "rtok_full").await;
+
+        // Generate a deterministic test key
+        let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+        let pubkey_b64 = STANDARD.encode(verifying_key.to_bytes());
+
+        // Register the key
+        let reg_resp = build_app(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/register-key")
+                    .header("authorization", format!("Bearer {access}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"public_key": pubkey_b64, "device_id": "test-host"})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reg_resp.status(), StatusCode::OK);
+
+        // Build and sign the report payload
+        let payload = serde_json::json!({
+            "schema_version": 1, "session_id": "sess-full", "user_email": "fulluser@example.org",
+            "turn_index": 0, "timestamp_utc": "2026-05-11T03:00:00Z",
+            "models": {"claude-sonnet-4-6": {"input_tokens":10,"output_tokens":5,"cache_read_tokens":0,"cache_write_tokens":0}},
+            "plugin_version": "0.1.0"
+        });
+        let body_bytes = payload.to_string();
+        let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+        let mut msg = body_bytes.as_bytes().to_vec();
+        msg.push(b'\n');
+        msg.extend_from_slice(timestamp.as_bytes());
+        let sig = signing_key.sign(&msg);
+        let sig_header = format!("ed25519 {} {}", STANDARD.encode(sig.to_bytes()), pubkey_b64);
+
+        let resp = build_app(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/report")
+                    .header("authorization", format!("Bearer {access}"))
+                    .header("content-type", "application/json")
+                    .header("x-ccflux-signature", sig_header)
+                    .header("x-ccflux-timestamp", &timestamp)
+                    .body(Body::from(body_bytes))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+}

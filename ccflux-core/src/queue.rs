@@ -45,3 +45,63 @@ pub fn drain_one(path: &Path) -> Option<String> {
 pub fn clear(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn qpath(dir: &TempDir) -> std::path::PathBuf {
+        dir.path().join("pending.jsonl")
+    }
+
+    #[test]
+    fn roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let p = qpath(&dir);
+        enqueue(&p, "hello");
+        assert_eq!(drain_one(&p), Some("hello".to_string()));
+        assert_eq!(drain_one(&p), None);
+    }
+
+    #[test]
+    fn drain_empty_returns_none() {
+        let dir = TempDir::new().unwrap();
+        assert_eq!(drain_one(&qpath(&dir)), None);
+    }
+
+    #[test]
+    fn fifo_order() {
+        let dir = TempDir::new().unwrap();
+        let p = qpath(&dir);
+        enqueue(&p, "a");
+        enqueue(&p, "b");
+        enqueue(&p, "c");
+        assert_eq!(drain_one(&p).unwrap(), "a");
+        assert_eq!(drain_one(&p).unwrap(), "b");
+        assert_eq!(drain_one(&p).unwrap(), "c");
+        assert_eq!(drain_one(&p), None);
+    }
+
+    #[test]
+    fn cap_drops_oldest() {
+        let dir = TempDir::new().unwrap();
+        let p = qpath(&dir);
+        for i in 0..MAX_ENTRIES {
+            enqueue(&p, &format!("entry_{i}"));
+        }
+        // One more should evict entry_0
+        enqueue(&p, "overflow");
+        assert_eq!(drain_one(&p).unwrap(), "entry_1");
+    }
+
+    #[test]
+    fn clear_empties_queue() {
+        let dir = TempDir::new().unwrap();
+        let p = qpath(&dir);
+        enqueue(&p, "a");
+        enqueue(&p, "b");
+        clear(&p);
+        assert_eq!(drain_one(&p), None);
+    }
+}

@@ -137,6 +137,16 @@ pub async fn verify_signature(
     }
 }
 
+#[cfg(test)]
+pub async fn init_test_pool() -> SqlitePool {
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    sqlx::query(include_str!("../../schema.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool
+}
+
 /// Verifies the DB is reachable. Used by GET /health.
 pub async fn ping(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query("SELECT 1").execute(pool).await?;

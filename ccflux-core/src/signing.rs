@@ -145,3 +145,105 @@ fn key_registered_path(data_dir: &Path) -> PathBuf {
 fn key_revoked_path(data_dir: &Path) -> PathBuf {
     data_dir.join("ccflux").join("key_revoked")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    use tempfile::TempDir;
+
+    #[test]
+    fn generate_creates_key_file() {
+        let dir = TempDir::new().unwrap();
+        let key = load_or_generate(dir.path());
+        assert!(signing_key_path(dir.path()).exists());
+        let pubkey_bytes = STANDARD.decode(key.public_key_b64()).unwrap();
+        assert_eq!(pubkey_bytes.len(), 32);
+    }
+
+    #[test]
+    fn load_returns_same_key() {
+        let dir = TempDir::new().unwrap();
+        let k1 = load_or_generate(dir.path());
+        let k2 = load_or_generate(dir.path());
+        assert_eq!(k1.public_key_b64(), k2.public_key_b64());
+    }
+
+    #[test]
+    fn sign_verify_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let key = load_or_generate(dir.path());
+        let body = b"payload data";
+        let ts = "2026-05-11T03:00:00Z";
+        let sig_b64 = key.sign(body, ts);
+
+        let pubkey_bytes: [u8; 32] = STANDARD
+            .decode(key.public_key_b64())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let vk = VerifyingKey::from_bytes(&pubkey_bytes).unwrap();
+
+        let sig_bytes: [u8; 64] = STANDARD.decode(&sig_b64).unwrap().try_into().unwrap();
+        let sig = Signature::from_bytes(&sig_bytes);
+
+        let mut msg = body.to_vec();
+        msg.push(b'\n');
+        msg.extend_from_slice(ts.as_bytes());
+
+        assert!(vk.verify(&msg, &sig).is_ok());
+    }
+
+    #[test]
+    fn wrong_timestamp_fails_verification() {
+        let dir = TempDir::new().unwrap();
+        let key = load_or_generate(dir.path());
+        let sig_b64 = key.sign(b"body", "ts-original");
+
+        let pubkey_bytes: [u8; 32] = STANDARD
+            .decode(key.public_key_b64())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let vk = VerifyingKey::from_bytes(&pubkey_bytes).unwrap();
+        let sig_bytes: [u8; 64] = STANDARD.decode(&sig_b64).unwrap().try_into().unwrap();
+        let sig = Signature::from_bytes(&sig_bytes);
+
+        // Verify with a different timestamp — must fail
+        let mut msg = b"body".to_vec();
+        msg.push(b'\n');
+        msg.extend_from_slice(b"ts-different");
+        assert!(vk.verify(&msg, &sig).is_err());
+    }
+
+    #[test]
+    fn registration_state_lifecycle() {
+        let dir = TempDir::new().unwrap();
+        assert!(!is_registered(dir.path()));
+
+        let key = load_or_generate(dir.path());
+        assert!(!is_registered(dir.path()));
+
+        mark_registered(dir.path(), &key.public_key_b64());
+        assert!(is_registered(dir.path()));
+    }
+
+    #[test]
+    fn stale_registration_detected() {
+        let dir = TempDir::new().unwrap();
+        // Write a different pubkey as the registered value
+        mark_registered(dir.path(), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        load_or_generate(dir.path());
+        // The generated key won't match the stored value
+        assert!(!is_registered(dir.path()));
+    }
+
+    #[test]
+    fn revocation_state() {
+        let dir = TempDir::new().unwrap();
+        assert!(!is_revoked(dir.path()));
+        mark_revoked(dir.path());
+        assert!(is_revoked(dir.path()));
+    }
+}

@@ -106,3 +106,55 @@ fn write_cache(data_dir: &Path, cache: &TokenCache) {
     let _ = std::fs::write(&path, serde_json::to_string(cache).unwrap());
     offset::set_secure_permissions(&path);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_endpoint_replaces_last_segment() {
+        assert_eq!(
+            token_endpoint("https://example.org/report"),
+            "https://example.org/token"
+        );
+    }
+
+    #[test]
+    fn token_endpoint_with_subpath() {
+        assert_eq!(
+            token_endpoint("https://example.org/api/report"),
+            "https://example.org/api/token"
+        );
+    }
+
+    #[test]
+    fn token_endpoint_no_path() {
+        assert_eq!(
+            token_endpoint("https://example.org"),
+            "https://example.org/token"
+        );
+    }
+
+    #[test]
+    fn is_expiring_soon_far_future() {
+        let future = (chrono::Utc::now() + chrono::Duration::hours(8)).to_rfc3339();
+        assert!(!is_expiring_soon(&future));
+    }
+
+    #[test]
+    fn is_expiring_soon_past() {
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        assert!(is_expiring_soon(&past));
+    }
+
+    #[test]
+    fn is_expiring_soon_within_buffer() {
+        let soon = (chrono::Utc::now() + chrono::Duration::seconds(60)).to_rfc3339();
+        assert!(is_expiring_soon(&soon));
+    }
+
+    #[test]
+    fn is_expiring_soon_invalid_date() {
+        assert!(is_expiring_soon("not-a-valid-date"));
+    }
+}
