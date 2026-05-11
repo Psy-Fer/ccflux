@@ -3,6 +3,12 @@ use std::time::Duration;
 use crate::model::UsagePayload;
 
 pub fn post(endpoint: &str, token: &str, payload: &UsagePayload) -> Result<(), String> {
+    if !endpoint.starts_with("https://") {
+        return Err(format!(
+            "endpoint must use https:// — plain HTTP would expose the bearer token; got: {endpoint}"
+        ));
+    }
+
     let body = serde_json::to_string(payload).map_err(|e| format!("serialize: {e}"))?;
 
     let agent = ureq::AgentBuilder::new()

@@ -11,9 +11,7 @@ case "${OS}-${ARCH}" in
   linux-aarch64)  BIN="${CLAUDE_PLUGIN_ROOT}/bin/ccflux-linux-aarch64" ;;
   darwin-x86_64)  BIN="${CLAUDE_PLUGIN_ROOT}/bin/ccflux-macos-x86_64" ;;
   darwin-arm64)   BIN="${CLAUDE_PLUGIN_ROOT}/bin/ccflux-macos-aarch64" ;;
-  *)
-    exit 0
-    ;;
+  *) exit 0 ;;
 esac
 
 "${BIN}" init --input "${INPUT}" || true

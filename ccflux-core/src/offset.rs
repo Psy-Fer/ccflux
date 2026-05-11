@@ -27,6 +27,7 @@ pub fn write_offset(data_dir: &Path, session_id: &str, state: &OffsetState) -> s
     let tmp = path.with_extension("tmp");
     fs::create_dir_all(path.parent().unwrap())?;
     fs::write(&tmp, serde_json::to_string(state).unwrap())?;
+    set_secure_permissions(&tmp);
     fs::rename(tmp, path)
 }
 
@@ -50,4 +51,16 @@ pub fn log_error(data_dir: &Path, msg: &str) {
     if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = f.write_all(line.as_bytes());
     }
+}
+
+/// Sets file permissions to owner-read/write only (0600 on Unix).
+/// No-op on non-Unix platforms.
+fn set_secure_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }

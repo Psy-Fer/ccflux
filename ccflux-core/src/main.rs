@@ -18,25 +18,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Called by the Stop hook after each assistant turn.
     ReportTurn {
         #[arg(long)]
         input: String,
-        #[arg(long, default_value = "")]
-        endpoint: String,
-        #[arg(long, default_value = "")]
-        token: String,
     },
-    /// Called by the SessionEnd hook; same as report-turn but marks session closed.
     SessionEnd {
         #[arg(long)]
         input: String,
-        #[arg(long, default_value = "")]
-        endpoint: String,
-        #[arg(long, default_value = "")]
-        token: String,
     },
-    /// Called by the SessionStart hook; creates the offset sidecar file.
     Init {
         #[arg(long)]
         input: String,
@@ -44,15 +33,14 @@ enum Cmd {
 }
 
 fn main() {
-    // try_parse returns Err for --help, bad args, etc. — always exit 0.
     let cli = match Cli::try_parse() {
         Ok(c) => c,
         Err(_) => return,
     };
 
     match cli.command {
-        Cmd::ReportTurn { input, endpoint, token } => run_report(&input, endpoint, token, false),
-        Cmd::SessionEnd { input, endpoint, token } => run_report(&input, endpoint, token, true),
+        Cmd::ReportTurn { input } => run_report(&input, false),
+        Cmd::SessionEnd { input } => run_report(&input, true),
         Cmd::Init { input } => run_init(&input),
     }
 }
@@ -71,7 +59,7 @@ fn run_init(input: &str) {
     let _ = offset::init_offset(&data_dir, &hook.session_id, &session_start);
 }
 
-fn run_report(input: &str, mut endpoint: String, mut token: String, is_session_end: bool) {
+fn run_report(input: &str, is_session_end: bool) {
     let hook: HookInput = match serde_json::from_str(input) {
         Ok(h) => h,
         Err(_) => return,
@@ -83,26 +71,14 @@ fn run_report(input: &str, mut endpoint: String, mut token: String, is_session_e
         None => return,
     };
 
-    // Safety check: the transcript must belong to the same CC config dir as this plugin.
     if !transcript_belongs_to_plugin(&data_dir) {
         return;
     }
 
-    // Resolve endpoint and token: CLI args (from CLAUDE_PLUGIN_OPTION_* env vars) take
-    // priority; fall back to <data_dir>/ccflux/config.json for pre-configured deployments.
-    if endpoint.is_empty() || token.is_empty() {
-        if let Some(cfg) = read_plugin_config(&data_dir) {
-            if endpoint.is_empty() {
-                endpoint = cfg.endpoint.unwrap_or_default();
-            }
-            if token.is_empty() {
-                token = cfg.token.unwrap_or_default();
-            }
-        }
-    }
-    if endpoint.is_empty() || token.is_empty() {
-        return;
-    }
+    let (endpoint, token) = match resolve_credentials(&data_dir) {
+        Some(pair) => pair,
+        None => return,
+    };
 
     let state = offset::read_offset(&data_dir, &hook.session_id);
 
@@ -162,23 +138,39 @@ fn mark_closed(data_dir: &Path, session_id: &str, mut state: OffsetState) {
     let _ = offset::write_offset(data_dir, session_id, &state);
 }
 
-/// Derives the CC data dir from the transcript path.
-/// transcript = <data_dir>/projects/<project_hash>/<session_id>.jsonl
+/// Resolves endpoint + token without exposing them as CLI args.
+/// Priority: CLAUDE_PLUGIN_OPTION_* env vars → config.json.
+/// Returns None if either value is absent after both sources.
+fn resolve_credentials(data_dir: &Path) -> Option<(String, String)> {
+    let mut endpoint = std::env::var("CLAUDE_PLUGIN_OPTION_API_ENDPOINT").unwrap_or_default();
+    let mut token = std::env::var("CLAUDE_PLUGIN_OPTION_API_TOKEN").unwrap_or_default();
+
+    if endpoint.is_empty() || token.is_empty() {
+        if let Some(cfg) = read_plugin_config(data_dir) {
+            if endpoint.is_empty() {
+                endpoint = cfg.endpoint.unwrap_or_default();
+            }
+            if token.is_empty() {
+                token = cfg.token.unwrap_or_default();
+            }
+        }
+    }
+
+    if endpoint.is_empty() || token.is_empty() {
+        return None;
+    }
+    Some((endpoint, token))
+}
+
 fn data_dir_from_transcript(transcript: &Path) -> Option<PathBuf> {
     transcript.parent()?.parent()?.parent().map(|p| p.to_path_buf())
 }
 
-/// Verifies that the transcript's data dir matches the CC instance that installed this plugin.
-/// Prevents a plugin installed in ~/.claude-work from reporting on ~/.claude sessions.
-/// If CLAUDE_PLUGIN_ROOT is not set (e.g. during testing), the check is skipped.
 fn transcript_belongs_to_plugin(transcript_data_dir: &Path) -> bool {
     let plugin_root = match std::env::var("CLAUDE_PLUGIN_ROOT") {
         Ok(v) => v,
         Err(_) => return true,
     };
-
-    // Walk up the plugin root path to find the first 'plugins' component.
-    // Everything before it is the CC data dir.
     let components: Vec<_> = Path::new(&plugin_root).components().collect();
     for (i, component) in components.iter().enumerate() {
         if component.as_os_str() == "plugins" && i > 0 {
@@ -186,8 +178,6 @@ fn transcript_belongs_to_plugin(transcript_data_dir: &Path) -> bool {
             return transcript_data_dir == plugin_data_dir;
         }
     }
-
-    // Can't determine — don't block
     true
 }
 
