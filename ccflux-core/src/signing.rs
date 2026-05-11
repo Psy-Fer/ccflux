@@ -12,11 +12,15 @@ pub struct DeviceKey {
 
 impl DeviceKey {
     fn generate() -> Self {
-        Self { signing_key: SigningKey::generate(&mut OsRng) }
+        Self {
+            signing_key: SigningKey::generate(&mut OsRng),
+        }
     }
 
     fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self { signing_key: SigningKey::from_bytes(&bytes) }
+        Self {
+            signing_key: SigningKey::from_bytes(&bytes),
+        }
     }
 
     pub fn public_key_b64(&self) -> String {
@@ -91,9 +95,7 @@ pub fn try_register(
     let pubkey = key.public_key_b64();
     let device_id = get_device_id();
 
-    let body = format!(
-        r#"{{"public_key":"{pubkey}","device_id":"{device_id}"}}"#
-    );
+    let body = format!(r#"{{"public_key":"{pubkey}","device_id":"{device_id}"}}"#);
 
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(std::time::Duration::from_secs(5))

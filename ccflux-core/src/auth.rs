@@ -9,7 +9,11 @@ const REFRESH_BUFFER_SECS: i64 = 300;
 
 /// Returns a valid short-lived access token, using the cache when possible.
 /// On any failure, logs to errors.log and returns None so the hook exits silently.
-pub fn get_access_token(data_dir: &Path, report_endpoint: &str, refresh_token: &str) -> Option<String> {
+pub fn get_access_token(
+    data_dir: &Path,
+    report_endpoint: &str,
+    refresh_token: &str,
+) -> Option<String> {
     if let Some(cached) = read_cache(data_dir) {
         if !is_expiring_soon(&cached.expires_at) {
             return Some(cached.access_token);
@@ -49,7 +53,9 @@ fn is_expiring_soon(expires_at: &str) -> bool {
 
 fn exchange(data_dir: &Path, token_url: &str, refresh_token: &str) -> Result<String, String> {
     if !token_url.starts_with("https://") {
-        return Err(format!("token endpoint must use https://, got: {token_url}"));
+        return Err(format!(
+            "token endpoint must use https://, got: {token_url}"
+        ));
     }
 
     let agent = ureq::AgentBuilder::new()
@@ -74,7 +80,9 @@ fn exchange(data_dir: &Path, token_url: &str, refresh_token: &str) -> Result<Str
         return Err(format!("token endpoint returned HTTP {status}"));
     }
 
-    let body = resp.into_string().map_err(|e| format!("read /token response: {e}"))?;
+    let body = resp
+        .into_string()
+        .map_err(|e| format!("read /token response: {e}"))?;
     let token_resp: TokenResponse =
         serde_json::from_str(&body).map_err(|e| format!("parse /token response: {e}"))?;
 

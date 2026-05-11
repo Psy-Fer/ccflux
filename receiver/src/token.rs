@@ -15,7 +15,13 @@ pub async fn handle_token(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    match db::issue_access_token(&state.pool, &refresh_token, state.access_token_expiry_secs, state.refresh_token_rolling_days).await
+    match db::issue_access_token(
+        &state.pool,
+        &refresh_token,
+        state.access_token_expiry_secs,
+        state.refresh_token_rolling_days,
+    )
+    .await
     {
         Ok(Some(resp)) => Ok(Json(resp)),
         Ok(None) => Err(StatusCode::UNAUTHORIZED),

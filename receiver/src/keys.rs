@@ -26,7 +26,9 @@ pub async fn handle_register_key(
         }
     };
 
-    match db::register_device_key(&state.pool, &email, &payload.public_key, &payload.device_id).await {
+    match db::register_device_key(&state.pool, &email, &payload.public_key, &payload.device_id)
+        .await
+    {
         Ok(()) => StatusCode::OK,
         Err(e) => {
             eprintln!("register_device_key error: {e}");

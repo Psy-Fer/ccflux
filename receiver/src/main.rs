@@ -31,11 +31,9 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let db_path = std::env::var("DATABASE_PATH")
-        .unwrap_or_else(|_| "ccflux.db".to_string());
+    let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "ccflux.db".to_string());
 
-    let listen_addr = std::env::var("LISTEN_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+    let listen_addr = std::env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
 
     let access_token_expiry_secs: u64 = env_or("ACCESS_TOKEN_EXPIRY_SECS", 28800);
     let refresh_token_rolling_days: i64 = env_or("REFRESH_TOKEN_ROLLING_DAYS", 90);
@@ -90,11 +88,7 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn handle_report(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
+async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
     let access_token = match extract_bearer(&headers) {
         Some(t) => t,
         None => return StatusCode::UNAUTHORIZED.into_response(),
@@ -114,8 +108,12 @@ async fn handle_report(
         }
     };
 
-    let sig_header = headers.get("x-ccflux-signature").and_then(|v| v.to_str().ok());
-    let ts_header = headers.get("x-ccflux-timestamp").and_then(|v| v.to_str().ok());
+    let sig_header = headers
+        .get("x-ccflux-signature")
+        .and_then(|v| v.to_str().ok());
+    let ts_header = headers
+        .get("x-ccflux-timestamp")
+        .and_then(|v| v.to_str().ok());
 
     match db::verify_signature(&state.pool, &email, &body, sig_header, ts_header).await {
         Ok(SigVerifyResult::Valid) => {}

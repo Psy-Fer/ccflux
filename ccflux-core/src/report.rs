@@ -37,18 +37,14 @@ pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportS
         .send_string(body)
     {
         Ok(_) => ReportStatus::Accepted,
-        Err(ureq::Error::Status(403, resp)) => {
-            match resp.header("x-ccflux-error").unwrap_or("") {
-                "key-revoked" => ReportStatus::KeyRevoked,
-                "timestamp-stale" => ReportStatus::TimestampStale,
-                "signature-invalid" => ReportStatus::SignatureInvalid,
-                "key-not-registered" => ReportStatus::KeyNotRegistered,
-                other => ReportStatus::Failed(format!("403: {other}")),
-            }
-        }
-        Err(ureq::Error::Status(status, _)) => {
-            ReportStatus::Failed(format!("HTTP {status}"))
-        }
+        Err(ureq::Error::Status(403, resp)) => match resp.header("x-ccflux-error").unwrap_or("") {
+            "key-revoked" => ReportStatus::KeyRevoked,
+            "timestamp-stale" => ReportStatus::TimestampStale,
+            "signature-invalid" => ReportStatus::SignatureInvalid,
+            "key-not-registered" => ReportStatus::KeyNotRegistered,
+            other => ReportStatus::Failed(format!("403: {other}")),
+        },
+        Err(ureq::Error::Status(status, _)) => ReportStatus::Failed(format!("HTTP {status}")),
         Err(e) => ReportStatus::Failed(e.to_string()),
     }
 }

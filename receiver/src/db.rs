@@ -96,13 +96,11 @@ pub async fn verify_signature(
     };
 
     // Look up the key for this email in device_keys.
-    let row = sqlx::query(
-        "SELECT revoked FROM device_keys WHERE public_key = ? AND email = ?",
-    )
-    .bind(pubkey_b64)
-    .bind(email)
-    .fetch_optional(pool)
-    .await?;
+    let row = sqlx::query("SELECT revoked FROM device_keys WHERE public_key = ? AND email = ?")
+        .bind(pubkey_b64)
+        .bind(email)
+        .fetch_optional(pool)
+        .await?;
 
     match row {
         None => return Ok(SigVerifyResult::KeyNotRegistered),
@@ -291,9 +289,8 @@ pub async fn insert_usage(
 
 /// Removes expired access tokens. Called periodically by a background task.
 pub async fn purge_expired_access_tokens(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
-    let result =
-        sqlx::query("DELETE FROM access_tokens WHERE expires_at < datetime('now')")
-            .execute(pool)
-            .await?;
+    let result = sqlx::query("DELETE FROM access_tokens WHERE expires_at < datetime('now')")
+        .execute(pool)
+        .await?;
     Ok(result.rows_affected())
 }

@@ -85,7 +85,10 @@ fn run_report(input: &str, is_session_end: bool) {
 
     // If the device key has been revoked by IT, go silent with a logged message.
     if signing::is_revoked(&data_dir) {
-        offset::log_error(&data_dir, "ccflux: device key revoked — contact your IT admin to re-provision");
+        offset::log_error(
+            &data_dir,
+            "ccflux: device key revoked — contact your IT admin to re-provision",
+        );
         return;
     }
 
@@ -121,7 +124,11 @@ fn run_report(input: &str, is_session_end: bool) {
     let email = read_email(&data_dir);
     let session_start = if state.session_start.is_empty() {
         let ts = parse::first_timestamp(transcript);
-        if ts.is_empty() { None } else { Some(ts) }
+        if ts.is_empty() {
+            None
+        } else {
+            Some(ts)
+        }
     } else {
         Some(state.session_start.clone())
     };
@@ -150,26 +157,49 @@ fn run_report(input: &str, is_session_end: bool) {
     if signing::is_registered(&data_dir) {
         match report::post(&endpoint, &access_token, &body, &device_key) {
             ReportStatus::Accepted => {
-                advance_offset(&data_dir, &hook.session_id, &state, turn_data.new_line, is_session_end);
+                advance_offset(
+                    &data_dir,
+                    &hook.session_id,
+                    &state,
+                    turn_data.new_line,
+                    is_session_end,
+                );
                 drain_one_queued(&data_dir, &endpoint, &access_token, &device_key);
             }
             ReportStatus::KeyRevoked => {
-                offset::log_error(&data_dir, "ccflux: device key revoked — contact your IT admin to re-provision");
+                offset::log_error(
+                    &data_dir,
+                    "ccflux: device key revoked — contact your IT admin to re-provision",
+                );
                 queue::clear(&queue_path);
                 signing::mark_revoked(&data_dir);
             }
             ReportStatus::TimestampStale => {
                 // Shouldn't happen for live reports (clock skew >5min is unusual).
-                offset::log_error(&data_dir, "ccflux: request rejected as timestamp-stale (clock skew?)");
+                offset::log_error(
+                    &data_dir,
+                    "ccflux: request rejected as timestamp-stale (clock skew?)",
+                );
             }
             ReportStatus::SignatureInvalid => {
-                offset::log_error(&data_dir, "ccflux: signature-invalid — this is unexpected, retrying next turn");
+                offset::log_error(
+                    &data_dir,
+                    "ccflux: signature-invalid — this is unexpected, retrying next turn",
+                );
             }
             ReportStatus::KeyNotRegistered => {
                 // Race condition: mark as unregistered and queue for next turn.
-                let _ = std::fs::remove_file(offset::pending_reports_path(&data_dir).with_file_name("key_registered"));
+                let _ = std::fs::remove_file(
+                    offset::pending_reports_path(&data_dir).with_file_name("key_registered"),
+                );
                 queue::enqueue(&queue_path, &body);
-                advance_offset(&data_dir, &hook.session_id, &state, turn_data.new_line, is_session_end);
+                advance_offset(
+                    &data_dir,
+                    &hook.session_id,
+                    &state,
+                    turn_data.new_line,
+                    is_session_end,
+                );
             }
             ReportStatus::Failed(e) => {
                 offset::log_error(&data_dir, &format!("POST failed: {e}"));
@@ -178,7 +208,13 @@ fn run_report(input: &str, is_session_end: bool) {
     } else {
         // Key not yet registered: store locally and advance offset.
         queue::enqueue(&queue_path, &body);
-        advance_offset(&data_dir, &hook.session_id, &state, turn_data.new_line, is_session_end);
+        advance_offset(
+            &data_dir,
+            &hook.session_id,
+            &state,
+            turn_data.new_line,
+            is_session_end,
+        );
     }
 }
 
@@ -191,10 +227,16 @@ fn drain_one_queued(data_dir: &Path, endpoint: &str, access_token: &str, key: &s
                 // The queued payload's event time may be old, but the HTTP timestamp
                 // we send is always fresh. If the receiver still rejects it, discard —
                 // there's no way to send it without a valid timestamp window.
-                offset::log_error(data_dir, "ccflux: queued report rejected as timestamp-stale, discarding");
+                offset::log_error(
+                    data_dir,
+                    "ccflux: queued report rejected as timestamp-stale, discarding",
+                );
             }
             ReportStatus::KeyRevoked => {
-                offset::log_error(data_dir, "ccflux: device key revoked — contact your IT admin to re-provision");
+                offset::log_error(
+                    data_dir,
+                    "ccflux: device key revoked — contact your IT admin to re-provision",
+                );
                 queue::clear(&queue_path);
                 signing::mark_revoked(data_dir);
             }
@@ -257,7 +299,11 @@ fn resolve_credentials(data_dir: &Path) -> Option<(String, String)> {
 }
 
 fn data_dir_from_transcript(transcript: &Path) -> Option<PathBuf> {
-    transcript.parent()?.parent()?.parent().map(|p| p.to_path_buf())
+    transcript
+        .parent()?
+        .parent()?
+        .parent()
+        .map(|p| p.to_path_buf())
 }
 
 fn transcript_belongs_to_plugin(transcript_data_dir: &Path) -> bool {

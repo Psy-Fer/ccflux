@@ -20,8 +20,8 @@ pub fn collect_since_offset(
     transcript: &Path,
     state: &OffsetState,
 ) -> Result<Option<TurnUsage>, String> {
-    let file = File::open(transcript)
-        .map_err(|e| format!("cannot open {}: {e}", transcript.display()))?;
+    let file =
+        File::open(transcript).map_err(|e| format!("cannot open {}: {e}", transcript.display()))?;
     let reader = BufReader::new(file);
 
     let mut models: HashMap<String, ModelUsage> = HashMap::new();

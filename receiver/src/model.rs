@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub struct UsagePayload {
     pub schema_version: u32,
     pub session_id: String,
-    #[allow(dead_code)]  // present in payload but identity is resolved from the access token
+    #[allow(dead_code)] // present in payload but identity is resolved from the access token
     pub user_email: String,
     pub turn_index: u64,
     pub timestamp_utc: String,
