@@ -137,6 +137,20 @@ pub async fn verify_signature(
     }
 }
 
+/// Verifies the DB is reachable. Used by GET /health.
+pub async fn ping(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT 1").execute(pool).await?;
+    Ok(())
+}
+
+/// Count of non-expired access tokens. Used by GET /metrics.
+pub async fn count_active_access_tokens(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+    let row = sqlx::query("SELECT COUNT(*) as n FROM access_tokens WHERE expires_at > datetime('now')")
+        .fetch_one(pool)
+        .await?;
+    Ok(row.get::<i64, _>("n"))
+}
+
 /// Returns the email associated with a valid (non-expired) access token, or None.
 pub async fn email_from_access_token(
     pool: &SqlitePool,

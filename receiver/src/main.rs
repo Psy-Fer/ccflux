@@ -14,16 +14,19 @@ use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
 mod db;
+mod health;
 mod keys;
 mod model;
 mod token;
 
 use db::SigVerifyResult;
+use health::Metrics;
 
 #[derive(Clone)]
 struct AppState {
     pool: Arc<SqlitePool>,
     rate_limiter: Arc<RateLimiter>,
+    metrics: Arc<Metrics>,
     access_token_expiry_secs: u64,
     refresh_token_rolling_days: i64,
     require_signatures: bool,
@@ -58,6 +61,7 @@ async fn main() {
     let state = AppState {
         pool: pool.clone(),
         rate_limiter: Arc::new(RateLimiter::new(rate_limit_per_minute)),
+        metrics: Arc::new(Metrics::new()),
         access_token_expiry_secs,
         refresh_token_rolling_days,
         require_signatures,
@@ -80,6 +84,8 @@ async fn main() {
         .route("/token", post(token::handle_token))
         .route("/report", post(handle_report))
         .route("/register-key", post(keys::handle_register_key))
+        .route("/health", axum::routing::get(health::handle_health))
+        .route("/metrics", axum::routing::get(health::handle_metrics))
         .layer(DefaultBodyLimit::max(body_limit_kb * 1024))
         .with_state(state);
 
@@ -95,13 +101,17 @@ async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: 
     };
 
     if !state.rate_limiter.allow(&access_token).await {
+        state.metrics.inc(&state.metrics.reports_rate_limited);
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
 
     // Resolve email (needed for signature lookup) before verifying.
     let email = match db::email_from_access_token(&state.pool, &access_token).await {
         Ok(Some(e)) => e,
-        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Ok(None) => {
+            state.metrics.inc(&state.metrics.reports_auth_rejected);
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
         Err(e) => {
             eprintln!("db error: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -119,24 +129,31 @@ async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: 
         Ok(SigVerifyResult::Valid) => {}
         Ok(SigVerifyResult::NotPresent) if !state.require_signatures => {}
         Ok(SigVerifyResult::NotPresent) => {
+            state.metrics.inc(&state.metrics.reports_sig_rejected);
             return sig_error("signature-required");
         }
         Ok(SigVerifyResult::TimestampMissing) => {
+            state.metrics.inc(&state.metrics.reports_sig_rejected);
             return sig_error("timestamp-missing");
         }
         Ok(SigVerifyResult::TimestampStale) => {
+            state.metrics.inc(&state.metrics.reports_sig_rejected);
             return sig_error("timestamp-stale");
         }
         Ok(SigVerifyResult::MalformedHeader) => {
+            state.metrics.inc(&state.metrics.reports_sig_rejected);
             return sig_error("signature-invalid");
         }
         Ok(SigVerifyResult::KeyNotRegistered) => {
+            state.metrics.inc(&state.metrics.reports_sig_rejected);
             return sig_error("key-not-registered");
         }
         Ok(SigVerifyResult::KeyRevoked) => {
+            state.metrics.inc(&state.metrics.reports_sig_rejected);
             return sig_error("key-revoked");
         }
         Ok(SigVerifyResult::Invalid) => {
+            state.metrics.inc(&state.metrics.reports_sig_rejected);
             return sig_error("signature-invalid");
         }
         Err(e) => {
@@ -151,8 +168,14 @@ async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: 
     };
 
     match db::insert_usage(&state.pool, &access_token, &payload).await {
-        Ok(true) => StatusCode::OK.into_response(),
-        Ok(false) => StatusCode::UNAUTHORIZED.into_response(),
+        Ok(true) => {
+            state.metrics.inc(&state.metrics.reports_accepted);
+            StatusCode::OK.into_response()
+        }
+        Ok(false) => {
+            state.metrics.inc(&state.metrics.reports_auth_rejected);
+            StatusCode::UNAUTHORIZED.into_response()
+        }
         Err(e) => {
             eprintln!("db error: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

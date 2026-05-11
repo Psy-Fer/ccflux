@@ -23,7 +23,10 @@ pub async fn handle_token(
     )
     .await
     {
-        Ok(Some(resp)) => Ok(Json(resp)),
+        Ok(Some(resp)) => {
+            state.metrics.inc(&state.metrics.token_exchanges);
+            Ok(Json(resp))
+        }
         Ok(None) => Err(StatusCode::UNAUTHORIZED),
         Err(e) => {
             eprintln!("issue_access_token error: {e}");
