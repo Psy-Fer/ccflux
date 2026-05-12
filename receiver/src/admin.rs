@@ -142,7 +142,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
         db::admin_list_users(&state.pool),
     );
 
-    let (summary, users, models, daily, recent, devices, raw_events, provisioned_users) = match data {
+    let (summary, users, models, daily, recent, devices, raw_events, provisioned_users) = match data
+    {
         Ok(d) => d,
         Err(e) => {
             eprintln!("admin db error: {e}");
@@ -422,8 +423,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
                 } else {
                     ("ok", "Active")
                 };
-                let status_html =
-                    format!(r#"<span class="badge {badge_cls}">{badge_lbl}</span>"#);
+                let status_html = format!(r#"<span class="badge {badge_cls}">{badge_lbl}</span>"#);
                 let revoke_btn = if !u.revoked && !u.is_expired {
                     format!(
                         r#"<form class="inline" method="post" action="/admin/users/revoke"
@@ -643,15 +643,25 @@ pub async fn handle_provision_user(
     if !check_auth(&state, &headers) {
         return Redirect::to("/admin/login").into_response();
     }
-    if !form.get("csrf_token").map(|t| ct_eq(t, admin_token)).unwrap_or(false) {
+    if !form
+        .get("csrf_token")
+        .map(|t| ct_eq(t, admin_token))
+        .unwrap_or(false)
+    {
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let email = form.get("email").map(|s| s.trim().to_string()).unwrap_or_default();
+    let email = form
+        .get("email")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
     if email.is_empty() {
         return error_page("Email is required.").into_response();
     }
-    let division = form.get("division").map(|s| s.trim().to_string()).unwrap_or_default();
+    let division = form
+        .get("division")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
     let days: i64 = form
         .get("expires_days")
         .and_then(|s| s.parse().ok())
@@ -678,7 +688,11 @@ pub async fn handle_revoke_user(
     if !check_auth(&state, &headers) {
         return Redirect::to("/admin/login").into_response();
     }
-    if !form.get("csrf_token").map(|t| ct_eq(t, admin_token)).unwrap_or(false) {
+    if !form
+        .get("csrf_token")
+        .map(|t| ct_eq(t, admin_token))
+        .unwrap_or(false)
+    {
         return StatusCode::FORBIDDEN.into_response();
     }
     if let Some(token) = form.get("token") {
@@ -698,11 +712,19 @@ pub async fn handle_reissue_token(
     if !check_auth(&state, &headers) {
         return Redirect::to("/admin/login").into_response();
     }
-    if !form.get("csrf_token").map(|t| ct_eq(t, admin_token)).unwrap_or(false) {
+    if !form
+        .get("csrf_token")
+        .map(|t| ct_eq(t, admin_token))
+        .unwrap_or(false)
+    {
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let old_token = form.get("token").map(|s| s.as_str()).unwrap_or("").to_string();
+    let old_token = form
+        .get("token")
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
     if old_token.is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
     }
