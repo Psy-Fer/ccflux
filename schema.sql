@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS user_tokens (
     token       TEXT PRIMARY KEY,
     email       TEXT NOT NULL,
-    org_id      TEXT,
+    division    TEXT,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     revoked     INTEGER DEFAULT 0
 );
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS user_tokens (
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     token       TEXT PRIMARY KEY,
     email       TEXT NOT NULL,
-    org_id      TEXT,
+    division    TEXT,
     expires_at  TIMESTAMP NOT NULL,
     revoked     INTEGER DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP

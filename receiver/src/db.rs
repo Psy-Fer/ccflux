@@ -590,6 +590,109 @@ pub async fn admin_revoke_key(pool: &SqlitePool, public_key: &str) -> Result<(),
     Ok(())
 }
 
+pub struct AdminUser {
+    pub token: String,
+    pub email: String,
+    pub division: String,
+    pub expires_at: String,
+    pub revoked: bool,
+    pub is_expired: bool,
+    pub created_at: String,
+    pub last_active: String,
+}
+
+pub async fn admin_list_users(pool: &SqlitePool) -> Result<Vec<AdminUser>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT rt.token, rt.email, COALESCE(rt.division,'') as division,
+                rt.expires_at, rt.revoked,
+                CASE WHEN rt.expires_at < datetime('now') THEN 1 ELSE 0 END as is_expired,
+                COALESCE(rt.created_at,'') as created_at,
+                COALESCE(MAX(ue.timestamp_utc),'') as last_active
+         FROM refresh_tokens rt
+         LEFT JOIN usage_events ue ON ue.user_email = rt.email
+         GROUP BY rt.token
+         ORDER BY rt.email ASC, rt.created_at DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| AdminUser {
+            token: r.get("token"),
+            email: r.get("email"),
+            division: r.get("division"),
+            expires_at: r.get("expires_at"),
+            revoked: r.get::<i64, _>("revoked") != 0,
+            is_expired: r.get::<i64, _>("is_expired") != 0,
+            created_at: r.get("created_at"),
+            last_active: r.get("last_active"),
+        })
+        .collect())
+}
+
+pub async fn admin_provision_user(
+    pool: &SqlitePool,
+    email: &str,
+    division: &str,
+    days: i64,
+) -> Result<String, sqlx::Error> {
+    let token = format!("rtok_{}", Uuid::new_v4().to_string().replace('-', ""));
+    sqlx::query(
+        "INSERT INTO refresh_tokens (token, email, division, expires_at)
+         VALUES (?, ?, NULLIF(?, ''), datetime('now', '+' || ? || ' days'))",
+    )
+    .bind(&token)
+    .bind(email)
+    .bind(division)
+    .bind(days)
+    .execute(pool)
+    .await?;
+    Ok(token)
+}
+
+pub async fn admin_revoke_user_token(pool: &SqlitePool, token: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_tokens SET revoked = 1 WHERE token = ?")
+        .bind(token)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Revokes `old_token` and issues a new token for the same email/org. Returns (email, new_token).
+pub async fn admin_reissue_token(
+    pool: &SqlitePool,
+    old_token: &str,
+    days: i64,
+) -> Result<(String, String), sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT email, COALESCE(division,'') as division FROM refresh_tokens WHERE token = ?",
+    )
+    .bind(old_token)
+    .fetch_one(pool)
+    .await?;
+    let email: String = row.get("email");
+    let division: String = row.get("division");
+
+    sqlx::query("UPDATE refresh_tokens SET revoked = 1 WHERE token = ?")
+        .bind(old_token)
+        .execute(pool)
+        .await?;
+
+    let new_token = format!("rtok_{}", Uuid::new_v4().to_string().replace('-', ""));
+    sqlx::query(
+        "INSERT INTO refresh_tokens (token, email, division, expires_at)
+         VALUES (?, ?, NULLIF(?, ''), datetime('now', '+' || ? || ' days'))",
+    )
+    .bind(&new_token)
+    .bind(&email)
+    .bind(&division)
+    .bind(days)
+    .execute(pool)
+    .await?;
+
+    Ok((email, new_token))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

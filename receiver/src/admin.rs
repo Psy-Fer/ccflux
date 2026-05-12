@@ -24,6 +24,9 @@ pub fn router() -> Router<AppState> {
             get(handle_login_get).post(handle_login_post),
         )
         .route("/admin/device-keys/revoke", post(handle_revoke_key))
+        .route("/admin/users/provision", post(handle_provision_user))
+        .route("/admin/users/revoke", post(handle_revoke_user))
+        .route("/admin/users/reissue", post(handle_reissue_token))
 }
 
 fn ct_eq(a: &str, b: &str) -> bool {
@@ -136,9 +139,10 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
         db::admin_recent_events(&state.pool),
         db::admin_device_keys(&state.pool),
         db::fetch_events_for_windows(&state.pool),
+        db::admin_list_users(&state.pool),
     );
 
-    let (summary, users, models, daily, recent, devices, raw_events) = match data {
+    let (summary, users, models, daily, recent, devices, raw_events, provisioned_users) = match data {
         Ok(d) => d,
         Err(e) => {
             eprintln!("admin db error: {e}");
@@ -387,6 +391,105 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
 </div>"#
     );
 
+    // ── User provisioning panel ──────────────────────────────────────────────
+
+    let csrf = state.admin_token.as_deref().unwrap_or("");
+
+    let prov_form = format!(
+        r#"<form class="prov-form" method="post" action="/admin/users/provision">
+  <input type="hidden" name="csrf_token" value="{csrf_esc}">
+  <div class="prov-row">
+    <input type="email" name="email" placeholder="user@example.org" required>
+    <input type="text" name="division" placeholder="Division (optional)">
+    <span class="prov-lbl">Days valid</span>
+    <input type="number" name="expires_days" value="365" min="1" max="3650">
+    <button type="submit" class="btn-issue">Add user</button>
+  </div>
+</form>"#,
+        csrf_esc = esc(csrf),
+    );
+
+    let user_provision_rows: String = if provisioned_users.is_empty() {
+        r#"<tr><td colspan="7" class="empty">No users provisioned yet</td></tr>"#.to_string()
+    } else {
+        provisioned_users
+            .iter()
+            .map(|u| {
+                let (badge_cls, badge_lbl) = if u.revoked {
+                    ("rev", "Revoked")
+                } else if u.is_expired {
+                    ("exp", "Expired")
+                } else {
+                    ("ok", "Active")
+                };
+                let status_html =
+                    format!(r#"<span class="badge {badge_cls}">{badge_lbl}</span>"#);
+                let revoke_btn = if !u.revoked && !u.is_expired {
+                    format!(
+                        r#"<form class="inline" method="post" action="/admin/users/revoke"
+                onsubmit="return confirm('Revoke this token?')">
+          <input type="hidden" name="token" value="{}">
+          <input type="hidden" name="csrf_token" value="{}">
+          <button type="submit" class="btn-revoke">Revoke</button>
+        </form>"#,
+                        esc(&u.token),
+                        esc(csrf),
+                    )
+                } else {
+                    String::new()
+                };
+                let reissue_btn = if !u.revoked && !u.is_expired {
+                    format!(
+                        r#"<form class="inline" method="post" action="/admin/users/reissue"
+                onsubmit="return confirm('Revoke current token and issue a new one?')">
+          <input type="hidden" name="token" value="{}">
+          <input type="hidden" name="csrf_token" value="{}">
+          <button type="submit" class="btn-reissue">Reissue</button>
+        </form>"#,
+                        esc(&u.token),
+                        esc(csrf),
+                    )
+                } else {
+                    String::new()
+                };
+                let last = if u.last_active.is_empty() {
+                    "—".to_string()
+                } else {
+                    ts(&u.last_active)
+                };
+                format!(
+                    r#"<tr>
+  <td>{}</td>
+  <td class="sm">{}</td>
+  <td>{status_html}</td>
+  <td class="mono sm">{}</td>
+  <td class="mono sm">{}</td>
+  <td class="mono sm">{last}</td>
+  <td>{revoke_btn} {reissue_btn}</td>
+</tr>"#,
+                    esc(&u.email),
+                    esc(&u.division),
+                    ts(&u.created_at),
+                    ts(&u.expires_at),
+                )
+            })
+            .collect()
+    };
+
+    let users_panel = format!(
+        r#"<div class="panel">
+  <div class="panel-head">User provisioning</div>
+  {prov_form}
+  <table>
+    <thead><tr>
+      <th>Email</th><th>Division</th><th>Status</th>
+      <th>Created</th><th>Expires</th><th>Last active</th><th>Actions</th>
+    </tr></thead>
+    <tbody>{user_provision_rows}</tbody>
+  </table>
+</div>"#
+    );
+
     // ── 5-hour billing windows (ccusage algorithm) ────────────────────────────
 
     let windows = crate::billing::compute_billing_windows(raw_events);
@@ -518,12 +621,122 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
   {user_table}
   {model_table}
   {win_table}
+  {users_panel}
   {key_table}
   {event_table}
 </div>"#
     );
 
     Html(page_shell("Dashboard", &body)).into_response()
+}
+
+// ── User provisioning handlers ───────────────────────────────────────────────
+
+pub async fn handle_provision_user(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    let Some(admin_token) = &state.admin_token else {
+        return disabled_response();
+    };
+    if !check_auth(&state, &headers) {
+        return Redirect::to("/admin/login").into_response();
+    }
+    if !form.get("csrf_token").map(|t| ct_eq(t, admin_token)).unwrap_or(false) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    let email = form.get("email").map(|s| s.trim().to_string()).unwrap_or_default();
+    if email.is_empty() {
+        return error_page("Email is required.").into_response();
+    }
+    let division = form.get("division").map(|s| s.trim().to_string()).unwrap_or_default();
+    let days: i64 = form
+        .get("expires_days")
+        .and_then(|s| s.parse().ok())
+        .filter(|&d: &i64| d > 0)
+        .unwrap_or(365);
+
+    match db::admin_provision_user(&state.pool, &email, &division, days).await {
+        Ok(token) => Html(token_issued_page(&email, &token, "provisioned")).into_response(),
+        Err(e) => {
+            eprintln!("provision_user error: {e}");
+            error_page("Failed to provision user. Check server logs.").into_response()
+        }
+    }
+}
+
+pub async fn handle_revoke_user(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    let Some(admin_token) = &state.admin_token else {
+        return disabled_response();
+    };
+    if !check_auth(&state, &headers) {
+        return Redirect::to("/admin/login").into_response();
+    }
+    if !form.get("csrf_token").map(|t| ct_eq(t, admin_token)).unwrap_or(false) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if let Some(token) = form.get("token") {
+        let _ = db::admin_revoke_user_token(&state.pool, token).await;
+    }
+    Redirect::to("/admin/").into_response()
+}
+
+pub async fn handle_reissue_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    let Some(admin_token) = &state.admin_token else {
+        return disabled_response();
+    };
+    if !check_auth(&state, &headers) {
+        return Redirect::to("/admin/login").into_response();
+    }
+    if !form.get("csrf_token").map(|t| ct_eq(t, admin_token)).unwrap_or(false) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    let old_token = form.get("token").map(|s| s.as_str()).unwrap_or("").to_string();
+    if old_token.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let days: i64 = form
+        .get("expires_days")
+        .and_then(|s| s.parse().ok())
+        .filter(|&d: &i64| d > 0)
+        .unwrap_or(365);
+
+    match db::admin_reissue_token(&state.pool, &old_token, days).await {
+        Ok((email, new_token)) => {
+            Html(token_issued_page(&email, &new_token, "reissued")).into_response()
+        }
+        Err(e) => {
+            eprintln!("reissue_token error: {e}");
+            error_page("Failed to reissue token. Check server logs.").into_response()
+        }
+    }
+}
+
+fn error_page(message: &str) -> Html<String> {
+    let body = format!(
+        r#"<div class="wrap" style="padding-top:2rem">
+  <div class="panel">
+    <div class="panel-head">Error</div>
+    <div style="padding:1.25rem 1.1rem">
+      <p style="color:#dc2626;margin-bottom:1rem">{}</p>
+      <a href="/admin/" style="color:#4f8ef7;font-size:.85rem">← Back to dashboard</a>
+    </div>
+  </div>
+</div>"#,
+        esc(message)
+    );
+    Html(page_shell("Error", &body))
 }
 
 // ── HTML helpers ─────────────────────────────────────────────────────────────
@@ -766,6 +979,27 @@ fn page_shell(title: &str, content: &str) -> String {
     .win-note li{{font-size:.85rem;color:#1a1a2e;line-height:1.5}}
     .btn-revoke{{background:none;border:1px solid #dc2626;color:#dc2626;padding:.2rem .5rem;border-radius:4px;font-size:.72rem;cursor:pointer}}
     .btn-revoke:hover{{background:#dc2626;color:white}}
+    .btn-issue{{background:none;border:1px solid #2563eb;color:#2563eb;padding:.35rem .75rem;border-radius:4px;font-size:.82rem;cursor:pointer;white-space:nowrap}}
+    .btn-issue:hover{{background:#2563eb;color:white}}
+    .btn-reissue{{background:none;border:1px solid #2563eb;color:#2563eb;padding:.2rem .5rem;border-radius:4px;font-size:.72rem;cursor:pointer;white-space:nowrap}}
+    .btn-reissue:hover{{background:#2563eb;color:white}}
+    .exp{{background:#fef3c7;color:#d97706}}
+    .prov-form{{padding:.75rem 1.1rem;border-bottom:1px solid #eef0f3}}
+    .prov-row{{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}}
+    .prov-row input{{padding:.4rem .6rem;border:1px solid #d0d7de;border-radius:4px;font-size:.85rem;min-width:0}}
+    .prov-row input[type=email]{{flex:2;min-width:160px}}
+    .prov-row input[type=text]{{flex:1;min-width:100px}}
+    .prov-row input[type=number]{{width:70px}}
+    .prov-lbl{{font-size:.8rem;color:#5a6676;white-space:nowrap}}
+    .tok-wrap{{padding:1.25rem 1.1rem}}
+    .tok-warn{{color:#d97706;font-size:.85rem;margin-bottom:.75rem;font-weight:500}}
+    .tok-box{{display:flex;align-items:center;gap:.75rem;margin-bottom:1rem}}
+    .tok-box code{{font-family:"SFMono-Regular",Consolas,monospace;font-size:.85rem;background:#f8f9fb;padding:.5rem .75rem;border-radius:6px;border:1px solid #eef0f3;flex:1;overflow-x:auto;word-break:break-all}}
+    .btn-copy{{background:none;border:1px solid #8894a4;color:#5a6676;padding:.35rem .65rem;border-radius:4px;font-size:.82rem;cursor:pointer;white-space:nowrap}}
+    .btn-copy:hover{{background:#f8f9fb}}
+    .tok-hint{{font-size:.85rem;color:#5a6676;line-height:1.6}}
+    .back-link{{font-size:.85rem;color:#4f8ef7;text-decoration:none}}
+    .back-link:hover{{text-decoration:underline}}
   </style>
 </head>
 <body>
@@ -779,6 +1013,42 @@ document.querySelectorAll('[data-utc]').forEach(function(el){{
 </body>
 </html>"#
     )
+}
+
+fn token_issued_page(email: &str, token: &str, action: &str) -> String {
+    let heading = if action == "provisioned" {
+        "Token provisioned"
+    } else {
+        "Token reissued"
+    };
+    let body = format!(
+        r#"<div class="topbar"><h1>ccflux admin</h1></div>
+<div class="wrap">
+  <div class="panel">
+    <div class="panel-head">{heading} — {email_esc}</div>
+    <div class="tok-wrap">
+      <p class="tok-warn">Copy this token now — it will not be shown again in this UI.</p>
+      <div class="tok-box">
+        <code id="tok">{token_esc}</code>
+        <button class="btn-copy"
+          onclick="navigator.clipboard.writeText(document.getElementById('tok').textContent).then(function(){{this.textContent='Copied!'}}.bind(this))">Copy</button>
+      </div>
+      <p class="tok-hint">
+        Send this token along with your receiver endpoint to <strong>{email_esc}</strong>.<br>
+        They enter both values in Claude Code plugin settings or in
+        <code style="font-size:.82rem">&lt;data_dir&gt;/ccflux/config.json</code>.
+      </p>
+    </div>
+    <div style="padding:.75rem 1.1rem;border-top:1px solid #eef0f3">
+      <a class="back-link" href="/admin/">&#8592; Back to dashboard</a>
+    </div>
+  </div>
+</div>"#,
+        heading = heading,
+        email_esc = esc(email),
+        token_esc = esc(token),
+    );
+    page_shell(heading, &body)
 }
 
 fn login_page(error: Option<&str>) -> String {

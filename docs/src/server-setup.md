@@ -140,7 +140,7 @@ sqlite3 /var/lib/ccflux/ccflux.db
 ```
 
 ```sql
-INSERT INTO refresh_tokens (token, email, org_id, expires_at)
+INSERT INTO refresh_tokens (token, email, division, expires_at)
 VALUES (
     'rtok_abc123...',          -- generate with: openssl rand -hex 32
     'jsmith@example.org',
