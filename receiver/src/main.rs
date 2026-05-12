@@ -14,6 +14,7 @@ use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
 mod admin;
+mod billing;
 mod db;
 mod health;
 mod keys;

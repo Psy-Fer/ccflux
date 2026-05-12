@@ -135,9 +135,10 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
         db::admin_daily_stats(&state.pool),
         db::admin_recent_events(&state.pool),
         db::admin_device_keys(&state.pool),
+        db::fetch_events_for_windows(&state.pool),
     );
 
-    let (summary, users, models, daily, recent, devices) = match data {
+    let (summary, users, models, daily, recent, devices, raw_events) = match data {
         Ok(d) => d,
         Err(e) => {
             eprintln!("admin db error: {e}");
@@ -386,6 +387,121 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
 </div>"#
     );
 
+    // ── 5-hour billing windows (ccusage algorithm) ────────────────────────────
+
+    let windows = crate::billing::compute_billing_windows(raw_events);
+
+    // Bar chart: peak billed tokens across all windows per user (last 30 days).
+    // Pairs are (label, peak, avg) — avg rendered as a lighter secondary bar.
+    let mut peak_by_user: HashMap<&str, (i64, i64, usize)> = HashMap::new(); // email → (peak, sum, count)
+    for w in &windows {
+        let e = peak_by_user.entry(w.user_email.as_str()).or_insert((0, 0, 0));
+        let b = w.billed_tokens();
+        if b > e.0 {
+            e.0 = b;
+        }
+        e.1 += b;
+        e.2 += 1;
+    }
+    let mut peak_rows: Vec<(&str, i64, i64)> = peak_by_user
+        .iter()
+        .map(|(email, (peak, sum, count))| {
+            let avg = if *count > 0 { sum / *count as i64 } else { 0 };
+            (*email, *peak, avg)
+        })
+        .collect();
+    peak_rows.sort_by_key(|b| std::cmp::Reverse(b.1));
+
+    let win_bar_svg = svg_hbar_chart(&peak_rows);
+    let win_bar_note: String = peak_rows
+        .iter()
+        .map(|(email, peak, avg)| {
+            let active_note = windows
+                .iter()
+                .find(|w| w.user_email == *email && w.is_active)
+                .map(|w| {
+                    format!(
+                        " &nbsp;<span class='badge ok'>active</span> {} billed this window — resets {}",
+                        fmt_num(w.billed_tokens()),
+                        ts(&w.end.to_rfc3339()),
+                    )
+                })
+                .unwrap_or_default();
+            format!(
+                "<li><strong>{}</strong> — peak {}, avg {}{}</li>",
+                esc(email),
+                fmt_num(*peak),
+                fmt_num(*avg),
+                active_note,
+            )
+        })
+        .collect();
+    let win_bar = format!(
+        r#"<div class="panel">
+  <div class="panel-head">5-hour billing windows — peak billed tokens by user (last 30 days)</div>
+  <div class="chart-wrap">{win_bar_svg}</div>
+  <ul class="win-note">{win_bar_note}</ul>
+</div>"#
+    );
+
+    // Table: all windows from the last 7 days.
+    let seven_days_ago = chrono::Utc::now() - chrono::Duration::days(7);
+    let win_rows: String = {
+        let recent_windows: Vec<_> = windows
+            .iter()
+            .filter(|w| w.last_entry >= seven_days_ago)
+            .collect();
+        if recent_windows.is_empty() {
+            r#"<tr><td colspan="9" class="empty">No window data in the last 7 days</td></tr>"#
+                .to_string()
+        } else {
+            recent_windows
+                .iter()
+                .map(|w| {
+                    let status = if w.is_active {
+                        r#"<span class="badge ok">Active</span>"#
+                    } else {
+                        r#"<span class="badge">Closed</span>"#
+                    };
+                    format!(
+                        r#"<tr>
+  <td>{}</td>
+  <td class="mono sm">{}</td>
+  <td class="mono sm">{}</td>
+  <td class="num">{}</td><td class="num">{}</td>
+  <td class="num">{}</td><td class="num">{}</td>
+  <td class="num">{}</td><td class="num">{}</td>
+  <td>{status}</td>
+</tr>"#,
+                        esc(&w.user_email),
+                        ts(&w.start.to_rfc3339()),
+                        ts(&w.end.to_rfc3339()),
+                        fmt_num(w.input_tokens),
+                        fmt_num(w.output_tokens),
+                        fmt_num(w.cache_read_tokens),
+                        fmt_num(w.cache_write_tokens),
+                        w.turns,
+                        w.session_count,
+                    )
+                })
+                .collect()
+        }
+    };
+
+    let win_table = format!(
+        r#"<div class="panel">
+  <div class="panel-head">5-hour billing windows — last 7 days</div>
+  <table>
+    <thead><tr>
+      <th>User</th><th>Window start</th><th>Window end</th>
+      <th>Input</th><th>Output</th><th>Cache reads</th><th>Cache writes</th>
+      <th>Turns</th><th>Sessions</th><th>Status</th>
+    </tr></thead>
+    <tbody>{win_rows}</tbody>
+  </table>
+</div>"#
+    );
+
     let body = format!(
         r#"<div class="topbar">
   <h1>ccflux admin</h1>
@@ -396,8 +512,10 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
   {chart}
   {user_bar}
   {model_bar}
+  {win_bar}
   {user_table}
   {model_table}
+  {win_table}
   {key_table}
   {event_table}
 </div>"#
@@ -642,6 +760,8 @@ fn page_shell(title: &str, content: &str) -> String {
     .rev{{background:#fee2e2;color:#dc2626}}
     .empty{{padding:2rem;text-align:center;color:#8894a4;font-size:.85rem}}
     form.inline{{display:inline}}
+    .win-note{{list-style:none;padding:.75rem 1.1rem;border-top:1px solid #eef0f3;display:flex;flex-direction:column;gap:.35rem}}
+    .win-note li{{font-size:.85rem;color:#1a1a2e;line-height:1.5}}
     .btn-revoke{{background:none;border:1px solid #dc2626;color:#dc2626;padding:.2rem .5rem;border-radius:4px;font-size:.72rem;cursor:pointer}}
     .btn-revoke:hover{{background:#dc2626;color:white}}
   </style>

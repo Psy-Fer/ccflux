@@ -554,10 +554,119 @@ pub async fn admin_device_keys(pool: &SqlitePool) -> Result<Vec<AdminDeviceKey>,
         .collect())
 }
 
+/// Fetches all usage events from the last 30 days for billing window computation.
+/// The window algorithm runs in Rust (see `billing::compute_billing_windows`).
+pub async fn fetch_events_for_windows(
+    pool: &SqlitePool,
+) -> Result<Vec<crate::billing::RawEvent>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT user_email, timestamp_utc, session_id,
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+         FROM usage_events
+         WHERE timestamp_utc >= datetime('now', '-30 days')
+         ORDER BY user_email, timestamp_utc",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| crate::billing::RawEvent {
+            user_email: r.get("user_email"),
+            timestamp_utc: r.get("timestamp_utc"),
+            session_id: r.get("session_id"),
+            input_tokens: r.get("input_tokens"),
+            output_tokens: r.get("output_tokens"),
+            cache_read_tokens: r.get("cache_read_tokens"),
+            cache_write_tokens: r.get("cache_write_tokens"),
+        })
+        .collect())
+}
+
 pub async fn admin_revoke_key(pool: &SqlitePool, public_key: &str) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE device_keys SET revoked = 1 WHERE public_key = ?")
         .bind(public_key)
         .execute(pool)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn refresh_token_expiry_rolls_forward_on_use() {
+        let pool = init_test_pool().await;
+
+        // Insert a refresh token that expires in 1 day.
+        sqlx::query(
+            "INSERT INTO refresh_tokens (token, email, expires_at)
+             VALUES ('rtok', 'u@example.org', datetime('now', '+1 day'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let before: String =
+            sqlx::query("SELECT expires_at FROM refresh_tokens WHERE token = 'rtok'")
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+                .get("expires_at");
+
+        // Call /token with rolling_days = 90.
+        let resp = issue_access_token(&pool, "rtok", 3600, 90)
+            .await
+            .unwrap();
+        assert!(resp.is_some(), "should issue an access token");
+
+        let after: String =
+            sqlx::query("SELECT expires_at FROM refresh_tokens WHERE token = 'rtok'")
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+                .get("expires_at");
+
+        // expires_at must have advanced beyond the original +1 day value.
+        assert!(
+            after > before,
+            "expires_at should roll forward: before={before}, after={after}"
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_refresh_token_returns_none() {
+        let pool = init_test_pool().await;
+
+        sqlx::query(
+            "INSERT INTO refresh_tokens (token, email, expires_at)
+             VALUES ('rtok_exp', 'u@example.org', datetime('now', '-1 second'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let resp = issue_access_token(&pool, "rtok_exp", 3600, 90)
+            .await
+            .unwrap();
+        assert!(resp.is_none(), "expired token should return None");
+    }
+
+    #[tokio::test]
+    async fn revoked_refresh_token_returns_none() {
+        let pool = init_test_pool().await;
+
+        sqlx::query(
+            "INSERT INTO refresh_tokens (token, email, revoked, expires_at)
+             VALUES ('rtok_rev', 'u@example.org', 1, datetime('now', '+90 days'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let resp = issue_access_token(&pool, "rtok_rev", 3600, 90)
+            .await
+            .unwrap();
+        assert!(resp.is_none(), "revoked token should return None");
+    }
 }
