@@ -1,0 +1,123 @@
+# Security Guide
+
+This page covers production hardening requirements and things to avoid.
+
+---
+
+## DOs
+
+### Run the receiver behind a TLS-terminating reverse proxy
+
+Bearer tokens are transmitted in plain HTTP headers. Without TLS, any network observer between the user and your server can extract a valid access token and use it to submit forged reports.
+
+**Always** put the receiver behind nginx, Caddy, or another TLS-terminating proxy in production. Never expose the receiver's plain HTTP port directly.
+
+### Set `COOKIE_SECURE=1` when serving the admin dashboard over HTTPS
+
+The admin session cookie is `HttpOnly; SameSite=Strict` by default. When you set `COOKIE_SECURE=1`, the receiver also adds `; Secure`, which prevents the browser from sending the cookie over unencrypted connections.
+
+```bash
+COOKIE_SECURE=1
+```
+
+This must be set if your admin dashboard is served over HTTPS (i.e. always in production).
+
+### Enable `REQUIRE_SIGNATURES=1` once all devices have registered
+
+Ed25519 device signing provides replay protection and non-repudiation: each report is signed with a per-device private key that never leaves the user's machine. Once all active devices have registered their public keys with the receiver (visible in the admin dashboard's Device Keys table), set:
+
+```bash
+REQUIRE_SIGNATURES=1
+```
+
+After this, unsigned requests are rejected with `403 signature-required`. Old binary versions that predate signing support will fail silently (they log to `errors.log` and exit 0). Upgrade those before flipping the flag.
+
+### Use a strong, unique `ADMIN_TOKEN`
+
+The admin dashboard token is the only credential protecting access to all usage data. Generate it with:
+
+```bash
+openssl rand -hex 32
+```
+
+Store it in a secrets manager or environment file with restricted permissions (`chmod 600`). Rotate it periodically. Do not reuse it for any other purpose.
+
+### Use one refresh token per user
+
+Issuing a shared token to a team means all usage is attributed to one identity. You lose per-user visibility, which defeats the purpose of the tool. IT should issue exactly one token per person.
+
+---
+
+## DON'Ts
+
+### Don't commit `config.json` or any file containing tokens
+
+The file at `~/.claude/ccflux/config.json` contains a long-lived refresh token. If this file is committed to version control, anyone with repo access can use it to submit usage reports as that user until the token is revoked.
+
+Add it to `.gitignore` in any project where users might run Claude Code from the project root:
+
+```
+ccflux/config.json
+```
+
+### Don't expose `/admin/` to the public internet without additional network controls
+
+The admin dashboard is protected by a single bearer token. Consider also restricting it at the network level: firewall the `/admin/` path to your office IP range, VPN, or internal network. Defence in depth.
+
+### Don't disable TLS (`CCFLUX_ALLOW_HTTP=1`) in production
+
+The binary has a `CCFLUX_ALLOW_HTTP=1` escape hatch for local development. If this variable is set in a production wrapper script, bearer tokens are transmitted in plaintext. Remove it before distributing wrapper scripts to users.
+
+Check your `plugin/scripts/` directory before tagging a release:
+
+```bash
+grep -r CCFLUX_ALLOW_HTTP plugin/scripts/
+```
+
+This should produce no output in a release build.
+
+### Don't share the admin token with end users
+
+End users have no reason to access the admin dashboard. The admin token grants full read access to all usage data for all users. Treat it like a root password.
+
+---
+
+## Security architecture notes
+
+### Request signing
+
+Every report is signed with the device's Ed25519 private key (`~/.claude/ccflux/signing_key`, mode `0600`). The signing message is:
+
+```
+<body bytes>\n<X-CCFLUX-Timestamp value>
+```
+
+The receiver verifies the signature against the registered public key for the user's email. The `X-CCFLUX-Timestamp` header must be within 5 minutes of the server clock (replay protection).
+
+Signature errors return `403` with an `X-CCFLUX-Error` header. See [Configuration Reference — 403 error codes](./configuration.md#403-error-codes) for the full list.
+
+### Token model
+
+Users hold a long-lived **refresh token** (issued by IT). The binary exchanges it for a short-lived **access token** (default 8-hour lifetime) via `POST /token`. The access token is cached in `~/.claude/ccflux/token_cache.json` (mode `0600`) and refreshed automatically when within 5 minutes of expiry.
+
+Access tokens are what reach `/report`. The refresh token never leaves the user's machine.
+
+### Rate limiting
+
+The receiver applies a per-token rate limit (default 30 requests per minute) across `/report`, `/token`, and `/register-key` endpoints. This prevents a leaked token from being used to flood the database.
+
+### SQL injection prevention
+
+All database queries use `sqlx` parameterised bindings. There is no string interpolation in SQL queries.
+
+### XSS prevention
+
+All user-supplied values rendered in the admin dashboard HTML are escaped through an `esc()` helper that HTML-encodes `&`, `<`, `>`, `"`, and `'`. Stored values like `device_id` and `user_email` cannot inject scripts into the dashboard.
+
+### Constant-time comparisons
+
+Token comparisons in the receiver use `subtle::ConstantTimeEq` to prevent timing side-channel attacks. This applies to both the access token verification and the admin token check.
+
+### CSRF protection
+
+The device revoke endpoint (`POST /admin/device-keys/revoke`) includes a hidden `csrf_token` form field that is verified server-side with a constant-time comparison. Cross-origin form submissions cannot forge a valid CSRF token.

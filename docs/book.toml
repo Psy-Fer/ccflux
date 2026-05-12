@@ -1,0 +1,12 @@
+[book]
+title = "ccflux"
+description = "Per-turn token usage telemetry for Claude Code enterprise deployments"
+authors = ["Psy-Fer"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/Psy-Fer/ccflux"
+edit-url-template = "https://github.com/Psy-Fer/ccflux/edit/main/docs/src/{path}"

@@ -23,3 +23,6 @@ target
 CLAUDE.md
 DESIGN.md
 TODO.md
+
+# mdbook build output
+docs/book
