@@ -101,11 +101,18 @@ pub async fn handle_revoke_key(
     headers: HeaderMap,
     Form(form): Form<HashMap<String, String>>,
 ) -> Response {
-    if state.admin_token.is_none() {
+    let Some(admin_token) = &state.admin_token else {
         return disabled_response();
-    }
+    };
     if !check_auth(&state, &headers) {
         return Redirect::to("/admin/login").into_response();
+    }
+    let csrf_ok = form
+        .get("csrf_token")
+        .map(|t| ct_eq(t, admin_token))
+        .unwrap_or(false);
+    if !csrf_ok {
+        return StatusCode::FORBIDDEN.into_response();
     }
     if let Some(key) = form.get("pubkey") {
         let _ = db::admin_revoke_key(&state.pool, key).await;
@@ -290,13 +297,16 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
                     r#"<span class="badge ok">Active</span>"#
                 };
                 let revoke_btn = if !k.revoked {
+                    let csrf = state.admin_token.as_deref().unwrap_or("");
                     format!(
                         r#"<form class="inline" method="post" action="/admin/device-keys/revoke"
                                 onsubmit="return confirm('Revoke this device key?')">
               <input type="hidden" name="pubkey" value="{}">
+              <input type="hidden" name="csrf_token" value="{}">
               <button type="submit" class="btn-revoke">Revoke</button>
             </form>"#,
-                        esc(&k.public_key)
+                        esc(&k.public_key),
+                        esc(csrf),
                     )
                 } else {
                     String::new()
