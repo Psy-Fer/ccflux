@@ -13,7 +13,8 @@ pub enum ReportStatus {
 
 /// Signs and POSTs a JSON payload string. Used for both live reports and queue drains.
 pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportStatus {
-    if !endpoint.starts_with("https://") {
+    let allow_http = std::env::var("CCFLUX_ALLOW_HTTP").as_deref() == Ok("1");
+    if !allow_http && !endpoint.starts_with("https://") {
         return ReportStatus::Failed(format!(
             "endpoint must use https:// — plain HTTP would expose the bearer token; got: {endpoint}"
         ));

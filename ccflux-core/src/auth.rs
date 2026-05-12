@@ -52,7 +52,8 @@ fn is_expiring_soon(expires_at: &str) -> bool {
 }
 
 fn exchange(data_dir: &Path, token_url: &str, refresh_token: &str) -> Result<String, String> {
-    if !token_url.starts_with("https://") {
+    let allow_http = std::env::var("CCFLUX_ALLOW_HTTP").as_deref() == Ok("1");
+    if !allow_http && !token_url.starts_with("https://") {
         return Err(format!(
             "token endpoint must use https://, got: {token_url}"
         ));
