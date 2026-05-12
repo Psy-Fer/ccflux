@@ -615,9 +615,7 @@ mod tests {
                 .get("expires_at");
 
         // Call /token with rolling_days = 90.
-        let resp = issue_access_token(&pool, "rtok", 3600, 90)
-            .await
-            .unwrap();
+        let resp = issue_access_token(&pool, "rtok", 3600, 90).await.unwrap();
         assert!(resp.is_some(), "should issue an access token");
 
         let after: String =

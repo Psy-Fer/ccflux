@@ -109,7 +109,10 @@ pub fn compute_billing_windows(mut events: Vec<RawEvent>) -> Vec<BillingWindow> 
             w.cache_write_tokens += ev.cache_write_tokens;
             w.turns += 1;
             w.last_entry = ts;
-            session_sets.last_mut().unwrap().insert(ev.session_id.clone(), ());
+            session_sets
+                .last_mut()
+                .unwrap()
+                .insert(ev.session_id.clone(), ());
         }
 
         for (w, sessions) in windows.iter_mut().zip(session_sets.iter()) {
@@ -169,7 +172,8 @@ mod tests {
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].turns, 3);
         assert_eq!(windows[0].input_tokens, 450);
-        assert_eq!(windows[0].start, parse_ts("2026-05-12T10:00:00Z").unwrap()); // floored to 10:00
+        assert_eq!(windows[0].start, parse_ts("2026-05-12T10:00:00Z").unwrap());
+        // floored to 10:00
     }
 
     #[test]

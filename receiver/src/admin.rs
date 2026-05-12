@@ -395,7 +395,9 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     // Pairs are (label, peak, avg) — avg rendered as a lighter secondary bar.
     let mut peak_by_user: HashMap<&str, (i64, i64, usize)> = HashMap::new(); // email → (peak, sum, count)
     for w in &windows {
-        let e = peak_by_user.entry(w.user_email.as_str()).or_insert((0, 0, 0));
+        let e = peak_by_user
+            .entry(w.user_email.as_str())
+            .or_insert((0, 0, 0));
         let b = w.billed_tokens();
         if b > e.0 {
             e.0 = b;
