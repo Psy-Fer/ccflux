@@ -155,9 +155,10 @@ pub async fn ping(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
 /// Count of non-expired access tokens. Used by GET /metrics.
 pub async fn count_active_access_tokens(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
-    let row = sqlx::query("SELECT COUNT(*) as n FROM access_tokens WHERE expires_at > datetime('now')")
-        .fetch_one(pool)
-        .await?;
+    let row =
+        sqlx::query("SELECT COUNT(*) as n FROM access_tokens WHERE expires_at > datetime('now')")
+            .fetch_one(pool)
+            .await?;
     Ok(row.get::<i64, _>("n"))
 }
 

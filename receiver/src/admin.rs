@@ -19,7 +19,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/admin", get(handle_dashboard))
         .route("/admin/", get(handle_dashboard))
-        .route("/admin/login", get(handle_login_get).post(handle_login_post))
+        .route(
+            "/admin/login",
+            get(handle_login_get).post(handle_login_post),
+        )
         .route("/admin/device-keys/revoke", post(handle_revoke_key))
 }
 
@@ -141,7 +144,10 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     let cache_hit_pct = {
         let total = summary.total_input + summary.total_cache_read + summary.total_cache_write;
         if total > 0 {
-            format!("{:.1}%", 100.0 * summary.total_cache_read as f64 / total as f64)
+            format!(
+                "{:.1}%",
+                100.0 * summary.total_cache_read as f64 / total as f64
+            )
         } else {
             "—".to_string()
         }

@@ -33,7 +33,10 @@ impl Metrics {
 pub async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
     match db::ping(&state.pool).await {
         Ok(()) => (StatusCode::OK, r#"{"status":"ok","db":"ok"}"#),
-        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, r#"{"status":"degraded","db":"error"}"#),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            r#"{"status":"degraded","db":"error"}"#,
+        ),
     }
 }
 

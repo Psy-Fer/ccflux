@@ -156,7 +156,10 @@ mod tests {
         // Three lines: assistant(0), human(1), assistant(2)
         // With offset 2, only the third line should be processed.
         let f = make_transcript(&[ASSISTANT, HUMAN, ASSISTANT]);
-        let state = OffsetState { line: 2, ..Default::default() };
+        let state = OffsetState {
+            line: 2,
+            ..Default::default()
+        };
         let result = collect_since_offset(f.path(), &state).unwrap().unwrap();
         assert_eq!(result.new_line, 3);
         // Only one assistant entry processed, not two

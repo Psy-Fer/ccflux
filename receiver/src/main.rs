@@ -61,7 +61,14 @@ async fn main() {
     println!("  RATE_LIMIT_PER_MINUTE      = {rate_limit_per_minute}");
     println!("  BODY_LIMIT_KB              = {body_limit_kb}");
     println!("  REQUIRE_SIGNATURES         = {require_signatures}");
-    println!("  ADMIN_TOKEN                = {}", if admin_token.is_some() { "set" } else { "unset (dashboard disabled)" });
+    println!(
+        "  ADMIN_TOKEN                = {}",
+        if admin_token.is_some() {
+            "set"
+        } else {
+            "unset (dashboard disabled)"
+        }
+    );
     println!("  COOKIE_SECURE              = {cookie_secure}");
 
     let pool = db::init(&db_path).await.expect("failed to init database");
@@ -260,6 +267,8 @@ mod tests {
             access_token_expiry_secs: 3600,
             refresh_token_rolling_days: 90,
             require_signatures: false,
+            admin_token: None,
+            cookie_secure: false,
         };
         (state, pool)
     }
@@ -275,7 +284,9 @@ mod tests {
     }
 
     async fn body_str(resp: axum::http::Response<Body>) -> String {
-        let b = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let b = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         String::from_utf8(b.to_vec()).unwrap()
     }
 
@@ -315,7 +326,12 @@ mod tests {
     async fn health_returns_ok() {
         let (state, _pool) = test_state().await;
         let resp = build_app(state)
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -328,7 +344,12 @@ mod tests {
     async fn metrics_content_type_and_format() {
         let (state, _pool) = test_state().await;
         let resp = build_app(state)
-            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -426,7 +447,10 @@ mod tests {
     async fn report_missing_sig_rejected_when_required() {
         let (state, pool) = test_state().await;
         // Override require_signatures
-        let state = AppState { require_signatures: true, ..state };
+        let state = AppState {
+            require_signatures: true,
+            ..state
+        };
         seed_refresh_token(&pool, "rtok_sig", "siguser@example.org").await;
         let access = get_access_token(&state, "rtok_sig").await;
 
@@ -450,14 +474,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-        let err = resp.headers().get("x-ccflux-error").unwrap().to_str().unwrap();
+        let err = resp
+            .headers()
+            .get("x-ccflux-error")
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert_eq!(err, "signature-required");
     }
 
     #[tokio::test]
     async fn report_full_signed_flow() {
         let (state, pool) = test_state().await;
-        let state = AppState { require_signatures: true, ..state };
+        let state = AppState {
+            require_signatures: true,
+            ..state
+        };
         seed_refresh_token(&pool, "rtok_full", "fulluser@example.org").await;
         let access = get_access_token(&state, "rtok_full").await;
 
