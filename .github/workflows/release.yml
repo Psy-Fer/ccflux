@@ -6,92 +6,121 @@ on:
       - 'v*'
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
+  build-plugin:
+    name: plugin / ${{ matrix.artifact_out }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            bin_name: ccflux-linux-x86_64
-            use_cross: false
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            bin_name: ccflux-linux-aarch64
-            use_cross: true
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            bin_name: ccflux-macos-x86_64
-            use_cross: false
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            bin_name: ccflux-macos-aarch64
-            use_cross: false
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            bin_name: ccflux-windows-x86_64.exe
-            use_cross: false
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin: ccflux
+            artifact_out: ccflux-linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bin: ccflux
+            artifact_out: ccflux-linux-aarch64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            bin: ccflux
+            artifact_out: ccflux-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin: ccflux
+            artifact_out: ccflux-macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: ccflux.exe
+            artifact_out: ccflux-windows-x86_64.exe
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross
-        if: matrix.use_cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build (cross)
-        if: matrix.use_cross
-        working-directory: ccflux-core
-        run: cross build --release --target ${{ matrix.target }}
-
-      - name: Build (cargo)
-        if: '!matrix.use_cross'
-        working-directory: ccflux-core
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Strip binary (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          strip ccflux-core/target/${{ matrix.target }}/release/ccflux
-
-      - name: Rename binary
-        shell: bash
-        run: |
-          SRC="ccflux-core/target/${{ matrix.target }}/release/ccflux"
-          [[ "${{ matrix.os }}" == "windows-latest" ]] && SRC="${SRC}.exe"
-          cp "${SRC}" "plugin/bin/${{ matrix.bin_name }}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          name: ${{ matrix.bin_name }}
-          path: plugin/bin/${{ matrix.bin_name }}
+          workspaces: ccflux-core
+          key: ${{ matrix.target }}
 
-  release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        working-directory: ccflux-core
+
+      - name: Stage artifact
+        shell: bash
+        run: cp ccflux-core/target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.artifact_out }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_out }}
+          path: ${{ matrix.artifact_out }}
+
+  build-receiver:
+    name: receiver / ${{ matrix.artifact_out }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_out: ccflux-receiver-linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact_out: ccflux-receiver-linux-aarch64
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          path: plugin/bin
+          targets: ${{ matrix.target }}
 
-      - name: Flatten artifacts
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: receiver
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        working-directory: receiver
+
+      - name: Stage artifact
+        run: cp receiver/target/${{ matrix.target }}/release/ccflux-receiver ${{ matrix.artifact_out }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_out }}
+          path: ${{ matrix.artifact_out }}
+
+  release:
+    name: Create GitHub Release
+    needs: [build-plugin, build-receiver]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts/
+
+      - name: Extract changelog section
         run: |
-          find plugin/bin -mindepth 2 -type f -exec mv {} plugin/bin/ \;
-          find plugin/bin -type d -empty -delete
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk "/^## \[$VERSION\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md \
+            | sed '/^[[:space:]]*$/d' > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "No changelog entry found for $VERSION" > release_notes.md
+          fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
-          files: plugin/bin/ccflux-*
-          generate_release_notes: true
+          files: artifacts/*
+          body_path: release_notes.md

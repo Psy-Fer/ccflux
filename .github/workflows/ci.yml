@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ccflux-core
+            receiver
+
+      - name: fmt (core)
+        run: cargo fmt --check
+        working-directory: ccflux-core
+
+      - name: clippy (core)
+        run: cargo clippy -- -D warnings
+        working-directory: ccflux-core
+
+      - name: test (core)
+        run: cargo test
+        working-directory: ccflux-core
+
+      - name: fmt (receiver)
+        run: cargo fmt --check
+        working-directory: receiver
+
+      - name: clippy (receiver)
+        run: cargo clippy -- -D warnings
+        working-directory: receiver
+
+      - name: test (receiver)
+        run: cargo test
+        working-directory: receiver
