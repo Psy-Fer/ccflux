@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart hook — initialises the offset sidecar file for this session.
 set -euo pipefail
+# Allow plain HTTP for local dev. Remove before production deployment.
+export CCFLUX_ALLOW_HTTP=1
 
 INPUT="$(cat)"
 

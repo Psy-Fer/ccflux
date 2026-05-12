@@ -12,6 +12,14 @@ pub enum ReportStatus {
 }
 
 /// Signs and POSTs a JSON payload string. Used for both live reports and queue drains.
+/// Strips control characters from a server-supplied header value before logging.
+fn sanitize_header(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii() && !c.is_ascii_control())
+        .take(64)
+        .collect()
+}
+
 pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportStatus {
     let allow_http = std::env::var("CCFLUX_ALLOW_HTTP").as_deref() == Ok("1");
     if !allow_http && !endpoint.starts_with("https://") {
@@ -43,7 +51,7 @@ pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportS
             "timestamp-stale" => ReportStatus::TimestampStale,
             "signature-invalid" => ReportStatus::SignatureInvalid,
             "key-not-registered" => ReportStatus::KeyNotRegistered,
-            other => ReportStatus::Failed(format!("403: {other}")),
+            other => ReportStatus::Failed(format!("403: {}", sanitize_header(other))),
         },
         Err(ureq::Error::Status(status, _)) => ReportStatus::Failed(format!("HTTP {status}")),
         Err(e) => ReportStatus::Failed(e.to_string()),

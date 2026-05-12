@@ -318,3 +318,245 @@ pub async fn purge_expired_access_tokens(pool: &SqlitePool) -> Result<u64, sqlx:
         .await?;
     Ok(result.rows_affected())
 }
+
+// ── Admin dashboard queries ────────────────────────────────────────────────
+
+pub struct AdminOrgSummary {
+    pub total_users: i64,
+    pub total_sessions: i64,
+    pub total_turns: i64,
+    pub total_input: i64,
+    pub total_output: i64,
+    pub total_cache_read: i64,
+    pub total_cache_write: i64,
+}
+
+pub struct AdminUserStat {
+    pub email: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub sessions: i64,
+    pub turns: i64,
+    pub last_active: String,
+}
+
+pub struct AdminModelStat {
+    pub model: String,
+    pub unique_users: i64,
+    pub turns: i64,
+    pub total_input: i64,
+    pub total_output: i64,
+    pub total_cache_read: i64,
+    pub total_cache_write: i64,
+    pub cache_hit_pct: f64,
+}
+
+#[allow(dead_code)]
+pub struct AdminDailyStat {
+    pub day: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub turns: i64,
+}
+
+pub struct AdminRecentEvent {
+    pub received_at: String,
+    pub user_email: String,
+    pub session_id: String,
+    pub turn_index: i64,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+}
+
+pub struct AdminDeviceKey {
+    pub email: String,
+    pub device_id: String,
+    pub public_key: String,
+    pub registered_at: String,
+    pub last_seen_at: String,
+    pub revoked: bool,
+}
+
+pub async fn admin_org_summary(pool: &SqlitePool) -> Result<AdminOrgSummary, sqlx::Error> {
+    let r = sqlx::query(
+        "SELECT COUNT(DISTINCT user_email) as u, COUNT(DISTINCT session_id) as s, COUNT(*) as t,
+                COALESCE(SUM(input_tokens),0) as i, COALESCE(SUM(output_tokens),0) as o,
+                COALESCE(SUM(cache_read_tokens),0) as cr, COALESCE(SUM(cache_write_tokens),0) as cw
+         FROM usage_events",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(AdminOrgSummary {
+        total_users: r.get("u"),
+        total_sessions: r.get("s"),
+        total_turns: r.get("t"),
+        total_input: r.get("i"),
+        total_output: r.get("o"),
+        total_cache_read: r.get("cr"),
+        total_cache_write: r.get("cw"),
+    })
+}
+
+pub async fn admin_user_stats(pool: &SqlitePool) -> Result<Vec<AdminUserStat>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT user_email,
+                COALESCE(SUM(input_tokens),0) as i, COALESCE(SUM(output_tokens),0) as o,
+                COALESCE(SUM(cache_read_tokens),0) as cr, COALESCE(SUM(cache_write_tokens),0) as cw,
+                COUNT(DISTINCT session_id) as s, COUNT(*) as t,
+                COALESCE(MAX(timestamp_utc),'') as la
+         FROM usage_events
+         WHERE timestamp_utc >= datetime('now','-30 days')
+         GROUP BY user_email
+         ORDER BY (SUM(input_tokens)+SUM(output_tokens)) DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| AdminUserStat {
+            email: r.get("user_email"),
+            input_tokens: r.get("i"),
+            output_tokens: r.get("o"),
+            cache_read_tokens: r.get("cr"),
+            cache_write_tokens: r.get("cw"),
+            sessions: r.get("s"),
+            turns: r.get("t"),
+            last_active: r.get("la"),
+        })
+        .collect())
+}
+
+pub async fn admin_model_stats(pool: &SqlitePool) -> Result<Vec<AdminModelStat>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT model, COUNT(DISTINCT user_email) as u, COUNT(*) as t,
+                COALESCE(SUM(input_tokens),0) as i, COALESCE(SUM(output_tokens),0) as o,
+                COALESCE(SUM(cache_read_tokens),0) as cr, COALESCE(SUM(cache_write_tokens),0) as cw,
+                ROUND(100.0*SUM(cache_read_tokens)/
+                    NULLIF(SUM(input_tokens+cache_read_tokens+cache_write_tokens),0),1) as chp
+         FROM usage_events
+         GROUP BY model
+         ORDER BY SUM(output_tokens) DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| AdminModelStat {
+            model: r.get("model"),
+            unique_users: r.get("u"),
+            turns: r.get("t"),
+            total_input: r.get("i"),
+            total_output: r.get("o"),
+            total_cache_read: r.get("cr"),
+            total_cache_write: r.get("cw"),
+            cache_hit_pct: r.get::<Option<f64>, _>("chp").unwrap_or(0.0),
+        })
+        .collect())
+}
+
+pub async fn admin_daily_stats(pool: &SqlitePool) -> Result<Vec<AdminDailyStat>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT date(timestamp_utc) as day,
+                COALESCE(SUM(input_tokens),0) as i, COALESCE(SUM(output_tokens),0) as o,
+                COALESCE(SUM(cache_read_tokens),0) as cr, COUNT(*) as t
+         FROM usage_events
+         WHERE timestamp_utc >= datetime('now','-30 days')
+         GROUP BY date(timestamp_utc)
+         ORDER BY day ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut map: std::collections::HashMap<String, AdminDailyStat> = rows
+        .into_iter()
+        .map(|r| {
+            let day: String = r.get("day");
+            let s = AdminDailyStat {
+                day: day.clone(),
+                input_tokens: r.get("i"),
+                output_tokens: r.get("o"),
+                cache_read_tokens: r.get("cr"),
+                turns: r.get("t"),
+            };
+            (day, s)
+        })
+        .collect();
+
+    let mut result = Vec::with_capacity(30);
+    for days_ago in (0i64..30).rev() {
+        let day = (Utc::now() - Duration::days(days_ago))
+            .format("%Y-%m-%d")
+            .to_string();
+        result.push(map.remove(&day).unwrap_or(AdminDailyStat {
+            day: day.clone(),
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            turns: 0,
+        }));
+    }
+    Ok(result)
+}
+
+pub async fn admin_recent_events(pool: &SqlitePool) -> Result<Vec<AdminRecentEvent>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT received_at, user_email, session_id, turn_index, model,
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+         FROM usage_events
+         ORDER BY received_at DESC
+         LIMIT 50",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| AdminRecentEvent {
+            received_at: r.get("received_at"),
+            user_email: r.get("user_email"),
+            session_id: r.get("session_id"),
+            turn_index: r.get("turn_index"),
+            model: r.get("model"),
+            input_tokens: r.get("input_tokens"),
+            output_tokens: r.get("output_tokens"),
+            cache_read_tokens: r.get("cache_read_tokens"),
+            cache_write_tokens: r.get("cache_write_tokens"),
+        })
+        .collect())
+}
+
+pub async fn admin_device_keys(pool: &SqlitePool) -> Result<Vec<AdminDeviceKey>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT email, COALESCE(device_id,'') as device_id, public_key,
+                COALESCE(registered_at,'') as registered_at,
+                COALESCE(last_seen_at,'') as last_seen_at, revoked
+         FROM device_keys
+         ORDER BY email, registered_at DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| AdminDeviceKey {
+            email: r.get("email"),
+            device_id: r.get("device_id"),
+            public_key: r.get("public_key"),
+            registered_at: r.get("registered_at"),
+            last_seen_at: r.get("last_seen_at"),
+            revoked: r.get::<i64, _>("revoked") != 0,
+        })
+        .collect())
+}
+
+pub async fn admin_revoke_key(pool: &SqlitePool, public_key: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE device_keys SET revoked = 1 WHERE public_key = ?")
+        .bind(public_key)
+        .execute(pool)
+        .await?;
+    Ok(())
+}

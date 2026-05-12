@@ -13,6 +13,7 @@ use axum::{
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
+mod admin;
 mod db;
 mod health;
 mod keys;
@@ -30,6 +31,8 @@ struct AppState {
     access_token_expiry_secs: u64,
     refresh_token_rolling_days: i64,
     require_signatures: bool,
+    admin_token: Option<String>,
+    cookie_secure: bool,
 }
 
 #[tokio::main]
@@ -45,6 +48,10 @@ async fn main() {
     let require_signatures: bool = std::env::var("REQUIRE_SIGNATURES")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
+    let admin_token: Option<String> = std::env::var("ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
+    let cookie_secure: bool = std::env::var("COOKIE_SECURE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
     println!("ccflux-receiver config:");
     println!("  DATABASE_PATH              = {db_path}");
@@ -54,6 +61,8 @@ async fn main() {
     println!("  RATE_LIMIT_PER_MINUTE      = {rate_limit_per_minute}");
     println!("  BODY_LIMIT_KB              = {body_limit_kb}");
     println!("  REQUIRE_SIGNATURES         = {require_signatures}");
+    println!("  ADMIN_TOKEN                = {}", if admin_token.is_some() { "set" } else { "unset (dashboard disabled)" });
+    println!("  COOKIE_SECURE              = {cookie_secure}");
 
     let pool = db::init(&db_path).await.expect("failed to init database");
     let pool = Arc::new(pool);
@@ -65,6 +74,8 @@ async fn main() {
         access_token_expiry_secs,
         refresh_token_rolling_days,
         require_signatures,
+        admin_token,
+        cookie_secure,
     };
 
     // Purge expired access tokens once per hour.
@@ -81,6 +92,7 @@ async fn main() {
     });
 
     let app = Router::new()
+        .merge(admin::router())
         .route("/token", post(token::handle_token))
         .route("/report", post(handle_report))
         .route("/register-key", post(keys::handle_register_key))

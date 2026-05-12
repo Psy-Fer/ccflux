@@ -95,7 +95,11 @@ pub fn try_register(
     let pubkey = key.public_key_b64();
     let device_id = get_device_id();
 
-    let body = format!(r#"{{"public_key":"{pubkey}","device_id":"{device_id}"}}"#);
+    let body = serde_json::json!({
+        "public_key": pubkey,
+        "device_id": device_id,
+    })
+    .to_string();
 
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(std::time::Duration::from_secs(5))
@@ -129,9 +133,21 @@ fn register_key_endpoint(report_endpoint: &str) -> String {
 }
 
 fn get_device_id() -> String {
-    std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("COMPUTERNAME"))
-        .unwrap_or_else(|_| "unknown".to_string())
+    // $HOSTNAME is a bash variable, not exported — env::var("HOSTNAME") fails on Linux.
+    // Read the kernel's hostname directly, then fall back to the hostname command.
+    if let Ok(h) = std::fs::read_to_string("/proc/sys/kernel/hostname") {
+        let h = h.trim().to_string();
+        if !h.is_empty() {
+            return h;
+        }
+    }
+    if let Ok(out) = std::process::Command::new("hostname").output() {
+        let h = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !h.is_empty() {
+            return h;
+        }
+    }
+    std::env::var("COMPUTERNAME").unwrap_or_else(|_| "unknown".to_string())
 }
 
 fn signing_key_path(data_dir: &Path) -> PathBuf {
