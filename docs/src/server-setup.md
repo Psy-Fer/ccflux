@@ -213,12 +213,12 @@ Send the new token to the user. They update it in the plugin settings. The binar
 
 ## Enabling signature enforcement
 
-Once all your users have registered their device keys (visible in the admin dashboard), you can enforce signatures to prevent unsigned requests:
+Once your initial users have set up the plugin, you can enforce signatures permanently:
 
 ```bash
 REQUIRE_SIGNATURES=1
 ```
 
-Restart the receiver. After this, any binary that hasn't registered a key will have its reports rejected with `403 signature-required`. The binary handles this gracefully by queuing the report locally and retrying registration.
+**You do not need to toggle this flag for new users.** `REQUIRE_SIGNATURES` only applies to `/report`. The key registration endpoint (`/register-key`) has no signature requirement — it only needs a valid access token. A new user's first turn registers their key via `/register-key`, and only then do signed reports flow to `/report`. If registration takes more than one turn (e.g. a temporary network failure), reports queue locally and are sent signed once registration succeeds.
 
-Check the admin dashboard's **Device Keys** table to see which devices have registered before flipping this flag.
+The only case where enabling this flag causes a hard failure is a binary version that predates signing support (before v0.1.0). Check the admin dashboard's **Device Keys** table to confirm existing devices have registered before enabling, then leave it on permanently.

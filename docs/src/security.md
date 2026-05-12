@@ -24,13 +24,15 @@ This must be set if your admin dashboard is served over HTTPS (i.e. always in pr
 
 ### Enable `REQUIRE_SIGNATURES=1` once all devices have registered
 
-Ed25519 device signing provides replay protection and non-repudiation: each report is signed with a per-device private key that never leaves the user's machine. Once all active devices have registered their public keys with the receiver (visible in the admin dashboard's Device Keys table), set:
+Ed25519 device signing provides replay protection and non-repudiation: each report is signed with a per-device private key that never leaves the user's machine. Once your initial users have set up the plugin, set this permanently:
 
 ```bash
 REQUIRE_SIGNATURES=1
 ```
 
-After this, unsigned requests are rejected with `403 signature-required`. Old binary versions that predate signing support will fail silently (they log to `errors.log` and exit 0). Upgrade those before flipping the flag.
+**This flag does not need to be toggled for new users.** Key registration (`POST /register-key`) has no signature requirement — it only checks an access token. A new user's binary registers its key on the first turn, then sends all reports signed. If registration is temporarily delayed, reports queue locally and are drained signed once registration succeeds. IT never needs to touch this setting after enabling it.
+
+The only hard failure case is a binary older than v0.1.0, which predates signing support. Confirm existing devices have registered (admin dashboard → Device Keys) before enabling, then leave it on.
 
 ### Use a strong, unique `ADMIN_TOKEN`
 
