@@ -231,15 +231,31 @@ function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
 
     # Marketplace catalog and registry
     if ($Offline) {
-        if (Test-Path $MktDir -PathType Container) { Remove-Item $MktDir -Recurse -Force }
-        if (Test-Path $KnownJson) {
-            $km = Get-Content $KnownJson -Raw | ConvertFrom-Json
-            if ($km.PSObject.Properties['ccflux']) {
-                $km.PSObject.Properties.Remove('ccflux')
-                $km | ConvertTo-Json -Depth 10 | Set-Content $KnownJson -Encoding UTF8
-            }
+        New-Item -ItemType Directory -Path (Join-Path $MktDir '.claude-plugin') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $MktDir 'plugins\ccflux')  -Force | Out-Null
+        $pe = [ordered]@{
+            name        = 'ccflux'
+            description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
+            author      = @{name='Psy-Fer'}
+            category    = 'monitoring'
+            homepage    = 'https://github.com/psy-fer/ccflux'
         }
-        Write-Dim "  skipped  plugins\marketplaces\  (offline — no remote source registered)"
+        $catalog = [ordered]@{
+            '$schema'   = 'https://anthropic.com/claude-code/marketplace.schema.json'
+            name        = 'ccflux'
+            description = 'ccflux — per-turn token usage telemetry for Claude Code'
+            owner       = [ordered]@{name='Psy-Fer';email='j.ferguson@garvan.org.au'}
+            plugins     = @($pe)
+        }
+        $catalog | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $MktDir '.claude-plugin\marketplace.json') -Encoding UTF8
+        Write-Host "  updated  plugins\marketplaces\ccflux\  (ccflux marketplace — local)"
+        if (Test-Path $KnownJson) { $km = Get-Content $KnownJson -Raw | ConvertFrom-Json }
+        else { $km = [PSCustomObject]@{} }
+        $km | Add-Member -NotePropertyName 'ccflux' -NotePropertyValue (
+            [PSCustomObject]@{source=[PSCustomObject]@{source='directory';path=$MktDir};installLocation=$MktDir;lastUpdated=$Now}
+        ) -Force
+        $km | ConvertTo-Json -Depth 10 | Set-Content $KnownJson -Encoding UTF8
+        Write-Host "  updated  plugins\known_marketplaces.json  (ccflux marketplace — local)"
     } else {
         New-Item -ItemType Directory -Path (Join-Path $MktDir '.claude-plugin') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $MktDir 'plugins\ccflux')  -Force | Out-Null

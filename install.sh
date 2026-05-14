@@ -102,16 +102,29 @@ known_j      = os.path.join(plugins_dir, 'known_marketplaces.json')
 mkt_dir      = os.path.join(plugins_dir, 'marketplaces', 'ccflux')
 
 if offline:
-    import shutil
-    if os.path.isdir(mkt_dir):
-        shutil.rmtree(mkt_dir)
+    os.makedirs(os.path.join(mkt_dir, '.claude-plugin'), exist_ok=True)
+    os.makedirs(os.path.join(mkt_dir, 'plugins', 'ccflux'), exist_ok=True)
+    catalog_offline = {
+        "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+        "name": "ccflux",
+        "description": "ccflux — per-turn token usage telemetry for Claude Code",
+        "owner": {"name": "Psy-Fer", "email": "j.ferguson@garvan.org.au"},
+        "plugins": [{
+            "name": "ccflux",
+            "description": "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver.",
+            "author": {"name": "Psy-Fer"},
+            "category": "monitoring",
+            "homepage": "https://github.com/psy-fer/ccflux"
+        }]
+    }
+    with open(os.path.join(mkt_dir, '.claude-plugin', 'marketplace.json'), 'w') as f:
+        json.dump(catalog_offline, f, indent=2); f.write('\n')
     km = {}
     try:
         with open(known_j) as f: km = json.load(f)
     except OSError: pass
-    if 'ccflux' in km:
-        del km['ccflux']
-        with open(known_j, 'w') as f: json.dump(km, f, indent=2); f.write('\n')
+    km['ccflux'] = {'source': {'source': 'directory', 'path': mkt_dir}, 'installLocation': mkt_dir, 'lastUpdated': ts}
+    with open(known_j, 'w') as f: json.dump(km, f, indent=2); f.write('\n')
 else:
     os.makedirs(os.path.join(mkt_dir, '.claude-plugin'), exist_ok=True)
     os.makedirs(os.path.join(mkt_dir, 'plugins', 'ccflux'), exist_ok=True)
@@ -177,9 +190,12 @@ function readJ(p){try{return JSON.parse(fs.readFileSync(p,'utf8'));}catch(_){ret
 function writeJ(p,d){fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');}
 
 if(offline){
-  rmrf(mktDir);
+  [mktCp,path.join(mktDir,'plugins','ccflux')].forEach(d=>{try{fs.mkdirSync(d,{recursive:true});}catch(_){}});
+  const offcat={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'ccflux',description:'ccflux — per-turn token usage telemetry for Claude Code',owner:{name:'Psy-Fer',email:'j.ferguson@garvan.org.au'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation\\'s self-hosted receiver.',author:{name:'Psy-Fer'},category:'monitoring',homepage:'https://github.com/psy-fer/ccflux'}]};
+  writeJ(path.join(mktCp,'marketplace.json'),offcat);
   const km=readJ(knownJ)||{};
-  if('ccflux'in km){delete km['ccflux'];writeJ(knownJ,km);}
+  km['ccflux']={source:{source:'directory',path:mktDir},installLocation:mktDir,lastUpdated:ts};
+  writeJ(knownJ,km);
 }else{
   [mktCp,path.join(mktDir,'plugins','ccflux')].forEach(d=>{try{fs.mkdirSync(d,{recursive:true});}catch(_){}});
   const catalog={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'ccflux',description:'ccflux — per-turn token usage telemetry for Claude Code',owner:{name:'Psy-Fer',email:'j.ferguson@garvan.org.au'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation\\'s self-hosted receiver.',author:{name:'Psy-Fer'},category:'monitoring',source:{source:'git-subdir',url:'https://github.com/psy-fer/ccflux.git',path:'plugin',ref:'v0.1.0'},homepage:'https://github.com/psy-fer/ccflux'}]};
@@ -217,14 +233,29 @@ $mktDir  = Join-Path $pdir 'marketplaces\ccflux'
 $knownJ  = Join-Path $pdir 'known_marketplaces.json'
 
 if ($offline) {
-    if (Test-Path $mktDir -PathType Container) { Remove-Item $mktDir -Recurse -Force }
-    if (Test-Path $knownJ) {
-        $km = Get-Content $knownJ -Raw | ConvertFrom-Json
-        if ($km.PSObject.Properties['ccflux']) {
-            $km.PSObject.Properties.Remove('ccflux')
-            $km | ConvertTo-Json -Depth 10 | Set-Content $knownJ -Encoding UTF8
-        }
+    New-Item -ItemType Directory -Path (Join-Path $mktDir '.claude-plugin') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $mktDir 'plugins\ccflux')  -Force | Out-Null
+    $pe = [ordered]@{
+        name        = 'ccflux'
+        description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
+        author      = @{name='Psy-Fer'}
+        category    = 'monitoring'
+        homepage    = 'https://github.com/psy-fer/ccflux'
     }
+    $catalog = [ordered]@{
+        '$schema'   = 'https://anthropic.com/claude-code/marketplace.schema.json'
+        name        = 'ccflux'
+        description = 'ccflux — per-turn token usage telemetry for Claude Code'
+        owner       = [ordered]@{name='Psy-Fer';email='j.ferguson@garvan.org.au'}
+        plugins     = @($pe)
+    }
+    $catalog | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $mktDir '.claude-plugin\marketplace.json') -Encoding UTF8
+    if (Test-Path $knownJ) { $km = Get-Content $knownJ -Raw | ConvertFrom-Json }
+    else { $km = [PSCustomObject]@{} }
+    $km | Add-Member -NotePropertyName 'ccflux' -NotePropertyValue (
+        [PSCustomObject]@{source=[PSCustomObject]@{source='directory';path=$mktDir};installLocation=$mktDir;lastUpdated=$ts}
+    ) -Force
+    $km | ConvertTo-Json -Depth 10 | Set-Content $knownJ -Encoding UTF8
 } else {
     New-Item -ItemType Directory -Path (Join-Path $mktDir '.claude-plugin') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $mktDir 'plugins\ccflux')  -Force | Out-Null
@@ -308,11 +339,7 @@ register_plugin() {
     fi
 
     "_reg_${tool}" "$bin" "$install_dir" "$plugin_dest" "$now"
-    if [[ "$OFFLINE" == "true" ]]; then
-        echo "  cleaned  plugins/known_marketplaces.json  $(dim "(offline — no remote source registered)")"
-    else
-        echo "  updated  plugins/known_marketplaces.json  (ccflux marketplace)"
-    fi
+    echo "  updated  plugins/known_marketplaces.json  (ccflux marketplace)"
     echo "  updated  plugins/installed_plugins.json   (ccflux@ccflux)"
     echo "  updated  settings.json                    (enabledPlugins: ccflux@ccflux)"
 }
