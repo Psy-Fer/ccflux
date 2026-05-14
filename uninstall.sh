@@ -37,7 +37,6 @@ looks_like_claude_dir() {
 find_installed_dirs() {
     local raw="" dir json_file seen=""
 
-    # Collect raw candidates
     raw="${HOME}/.claude"$'\n'
     for dir in "${HOME}"/.claude-*/; do
         [[ -d "${dir%/}" ]] && raw="${raw}${dir%/}"$'\n'
@@ -46,7 +45,6 @@ find_installed_dirs() {
         raw="${raw}$(dirname "$json_file")"$'\n'
     done < <(find "${HOME}" -maxdepth 3 -name ".claude.json" 2>/dev/null | sort)
 
-    # Deduplicate, filter to dirs where ccflux is actually installed
     while IFS= read -r dir; do
         [[ -z "$dir" ]] && continue
         case "|$seen|" in *"|${dir}|"*) continue ;; esac
@@ -65,103 +63,129 @@ _win_path() {
 }
 
 _dereg_python() {
-    local pybin="$1" installed_json="$2" settings_json="$3"
+    local pybin="$1" install_dir="$2"
 
-    if [[ -f "$installed_json" ]]; then
-        CCFLUX_INSTALLED_JSON="$installed_json" \
-        "$pybin" - <<'PYEOF'
-import json, os
-path = os.environ['CCFLUX_INSTALLED_JSON']
-with open(path) as f: d = json.load(f)
-if d.get("plugins", {}).pop("ccflux@local", None) is not None:
-    with open(path, "w") as f: json.dump(d, f, indent=2); f.write("\n")
-    print("  updated  plugins/installed_plugins.json  (removed ccflux@local)")
-PYEOF
-    fi
+    CCFLUX_INSTALL_DIR="$install_dir" \
+    "$pybin" - <<'PYEOF'
+import json, os, shutil
 
-    if [[ -f "$settings_json" ]]; then
-        CCFLUX_SETTINGS_JSON="$settings_json" \
-        "$pybin" - <<'PYEOF'
-import json, os
-path = os.environ['CCFLUX_SETTINGS_JSON']
-with open(path) as f: d = json.load(f)
-if d.get("enabledPlugins", {}).pop("ccflux@local", None) is not None:
-    with open(path, "w") as f: json.dump(d, f, indent=2); f.write("\n")
-    print("  updated  settings.json  (removed ccflux@local)")
+install_dir = os.environ['CCFLUX_INSTALL_DIR']
+plugins_dir = os.path.join(install_dir, 'plugins')
+installed_j = os.path.join(plugins_dir, 'installed_plugins.json')
+settings_j  = os.path.join(install_dir, 'settings.json')
+known_j     = os.path.join(plugins_dir, 'known_marketplaces.json')
+mkt_dir     = os.path.join(plugins_dir, 'marketplaces', 'local')
+
+if os.path.isfile(installed_j):
+    with open(installed_j) as f: d = json.load(f)
+    if d.get('plugins', {}).pop('ccflux@local', None) is not None:
+        with open(installed_j, 'w') as f: json.dump(d, f, indent=2); f.write('\n')
+        print('  updated  plugins/installed_plugins.json  (removed ccflux@local)')
+
+if os.path.isfile(settings_j):
+    with open(settings_j) as f: d = json.load(f)
+    if d.get('enabledPlugins', {}).pop('ccflux@local', None) is not None:
+        with open(settings_j, 'w') as f: json.dump(d, f, indent=2); f.write('\n')
+        print('  updated  settings.json  (removed ccflux@local)')
+
+if os.path.isfile(known_j):
+    with open(known_j) as f: d = json.load(f)
+    if d.pop('local', None) is not None:
+        with open(known_j, 'w') as f: json.dump(d, f, indent=2); f.write('\n')
+        print('  updated  plugins/known_marketplaces.json  (removed local marketplace)')
+
+if os.path.isdir(mkt_dir):
+    shutil.rmtree(mkt_dir)
+    print('  removed  plugins/marketplaces/local/')
 PYEOF
-    fi
 }
 
 _dereg_node() {
-    local nodebin="$1" installed_json="$2" settings_json="$3"
+    local nodebin="$1" install_dir="$2"
 
-    if [[ -f "$installed_json" ]]; then
-        CCFLUX_INSTALLED_JSON="$installed_json" \
-        "$nodebin" -e "
-const fs=require('fs'),p=process.env.CCFLUX_INSTALLED_JSON;
-try{
-  let d=JSON.parse(fs.readFileSync(p,'utf8'));
-  if(d.plugins&&'ccflux@local'in d.plugins){
-    delete d.plugins['ccflux@local'];
-    fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');
-    process.stdout.write('  updated  plugins/installed_plugins.json  (removed ccflux@local)\n');
-  }
-}catch(_){}"
-    fi
+    CCFLUX_INSTALL_DIR="$install_dir" \
+    "$nodebin" -e "
+const fs=require('fs'),path=require('path'),e=process.env;
+const idir=e.CCFLUX_INSTALL_DIR;
+const pdir=path.join(idir,'plugins');
+const ipJ=path.join(pdir,'installed_plugins.json');
+const sJ=path.join(idir,'settings.json');
+const kmJ=path.join(pdir,'known_marketplaces.json');
+const mktDir=path.join(pdir,'marketplaces','local');
 
-    if [[ -f "$settings_json" ]]; then
-        CCFLUX_SETTINGS_JSON="$settings_json" \
-        "$nodebin" -e "
-const fs=require('fs'),p=process.env.CCFLUX_SETTINGS_JSON;
-try{
-  let d=JSON.parse(fs.readFileSync(p,'utf8'));
-  if(d.enabledPlugins&&'ccflux@local'in d.enabledPlugins){
-    delete d.enabledPlugins['ccflux@local'];
-    fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');
-    process.stdout.write('  updated  settings.json  (removed ccflux@local)\n');
-  }
-}catch(_){}"
-    fi
+function rmrf(d){try{fs.rmSync(d,{recursive:true,force:true});}catch(_){}}
+function readJ(p){try{return JSON.parse(fs.readFileSync(p,'utf8'));}catch(_){return null;}}
+function writeJ(p,d){fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');}
+
+let d;
+if((d=readJ(ipJ))&&d.plugins&&'ccflux@local'in d.plugins){
+  delete d.plugins['ccflux@local'];writeJ(ipJ,d);
+  process.stdout.write('  updated  plugins/installed_plugins.json  (removed ccflux@local)\n');}
+
+if((d=readJ(sJ))&&d.enabledPlugins&&'ccflux@local'in d.enabledPlugins){
+  delete d.enabledPlugins['ccflux@local'];writeJ(sJ,d);
+  process.stdout.write('  updated  settings.json  (removed ccflux@local)\n');}
+
+if((d=readJ(kmJ))&&'local'in d){
+  delete d['local'];writeJ(kmJ,d);
+  process.stdout.write('  updated  plugins/known_marketplaces.json  (removed local marketplace)\n');}
+
+try{if(fs.statSync(mktDir).isDirectory()){rmrf(mktDir);process.stdout.write('  removed  plugins/marketplaces/local/\n');}}catch(_){}"
 }
 
 _dereg_powershell() {
-    local psbin="$1" installed_json="$2" settings_json="$3"
+    local psbin="$1" install_dir="$2"
     local tmp="/tmp/ccflux_uninstall_$$.ps1"
 
     cat > "$tmp" << 'PSEOF'
 $ErrorActionPreference = 'Stop'
-$ipath = $env:CCFLUX_INSTALLED_JSON
-$spath = $env:CCFLUX_SETTINGS_JSON
+$idir   = $env:CCFLUX_INSTALL_DIR
+$pdir   = Join-Path $idir 'plugins'
+$ipJ    = Join-Path $pdir 'installed_plugins.json'
+$sJ     = Join-Path $idir 'settings.json'
+$kmJ    = Join-Path $pdir 'known_marketplaces.json'
+$mktDir = Join-Path $pdir 'marketplaces\local'
 
-if ($ipath -and (Test-Path $ipath)) {
-    $d = Get-Content $ipath -Raw | ConvertFrom-Json
+if (Test-Path $ipJ) {
+    $d = Get-Content $ipJ -Raw | ConvertFrom-Json
     if ($d.plugins.PSObject.Properties['ccflux@local']) {
         $d.plugins.PSObject.Properties.Remove('ccflux@local')
-        $d | ConvertTo-Json -Depth 10 | Set-Content $ipath -Encoding UTF8
+        $d | ConvertTo-Json -Depth 10 | Set-Content $ipJ -Encoding UTF8
         Write-Host "  updated  plugins/installed_plugins.json  (removed ccflux@local)"
     }
 }
 
-if ($spath -and (Test-Path $spath)) {
-    $s = Get-Content $spath -Raw | ConvertFrom-Json
+if (Test-Path $sJ) {
+    $s = Get-Content $sJ -Raw | ConvertFrom-Json
     if ($s.PSObject.Properties['enabledPlugins'] -and $s.enabledPlugins.PSObject.Properties['ccflux@local']) {
         $s.enabledPlugins.PSObject.Properties.Remove('ccflux@local')
-        $s | ConvertTo-Json -Depth 10 | Set-Content $spath -Encoding UTF8
+        $s | ConvertTo-Json -Depth 10 | Set-Content $sJ -Encoding UTF8
         Write-Host "  updated  settings.json  (removed ccflux@local)"
     }
 }
+
+if (Test-Path $kmJ) {
+    $km = Get-Content $kmJ -Raw | ConvertFrom-Json
+    if ($km.PSObject.Properties['local']) {
+        $km.PSObject.Properties.Remove('local')
+        $km | ConvertTo-Json -Depth 10 | Set-Content $kmJ -Encoding UTF8
+        Write-Host "  updated  plugins/known_marketplaces.json  (removed local marketplace)"
+    }
+}
+
+if (Test-Path $mktDir -PathType Container) {
+    Remove-Item $mktDir -Recurse -Force
+    Write-Host "  removed  plugins/marketplaces/local/"
+}
 PSEOF
 
-    CCFLUX_INSTALLED_JSON="$(_win_path "$installed_json")" \
-    CCFLUX_SETTINGS_JSON="$(_win_path "$settings_json")" \
+    CCFLUX_INSTALL_DIR="$(_win_path "$install_dir")" \
     "$psbin" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(_win_path "$tmp")"
     rm -f "$tmp"
 }
 
 deregister_plugin() {
     local install_dir="$1"
-    local installed_json="${install_dir}/plugins/installed_plugins.json"
-    local settings_json="${install_dir}/settings.json"
 
     local tool="" bin=""
 
@@ -185,11 +209,12 @@ deregister_plugin() {
 
     if [[ -z "$tool" ]]; then
         echo "  $(yellow "warning:") No JSON tool found — registry not updated."
-        echo "           Manually remove $(dim '"ccflux@local"') from installed_plugins.json and settings.json."
+        echo "           Manually remove $(dim '"ccflux@local"') from installed_plugins.json,"
+        echo "           settings.json, and known_marketplaces.json."
         return
     fi
 
-    "_dereg_${tool}" "$bin" "$installed_json" "$settings_json"
+    "_dereg_${tool}" "$bin" "$install_dir"
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────

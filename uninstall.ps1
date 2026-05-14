@@ -54,8 +54,11 @@ function Find-InstalledDirs {
 # ── Deregister from CC plugin registry ───────────────────────────────────────
 
 function Deregister-Plugin ([string]$InstallDir) {
-    $InstalledJson = Join-Path $InstallDir "plugins\installed_plugins.json"
+    $PluginsDir    = Join-Path $InstallDir "plugins"
+    $InstalledJson = Join-Path $PluginsDir "installed_plugins.json"
     $SettingsJson  = Join-Path $InstallDir "settings.json"
+    $KnownJson     = Join-Path $PluginsDir "known_marketplaces.json"
+    $MktDir        = Join-Path $PluginsDir "marketplaces\local"
 
     if (Test-Path $InstalledJson) {
         $ipData = Get-Content $InstalledJson -Raw | ConvertFrom-Json
@@ -74,6 +77,20 @@ function Deregister-Plugin ([string]$InstallDir) {
             $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsJson -Encoding UTF8
             Write-Host "  updated  settings.json  (removed ccflux@local)"
         }
+    }
+
+    if (Test-Path $KnownJson) {
+        $km = Get-Content $KnownJson -Raw | ConvertFrom-Json
+        if ($null -ne $km.PSObject.Properties['local']) {
+            $km.PSObject.Properties.Remove('local')
+            $km | ConvertTo-Json -Depth 10 | Set-Content $KnownJson -Encoding UTF8
+            Write-Host "  updated  plugins\known_marketplaces.json  (removed local marketplace)"
+        }
+    }
+
+    if (Test-Path $MktDir -PathType Container) {
+        Remove-Item $MktDir -Recurse -Force
+        Write-Host "  removed  plugins\marketplaces\local\"
     }
 }
 

@@ -48,7 +48,6 @@ looks_like_claude_dir() {
 find_claude_dirs() {
     local raw="" dir json_file seen=""
 
-    # Collect raw candidates
     raw="${HOME}/.claude"$'\n'
     for dir in "${HOME}"/.claude-*/; do
         [[ -d "${dir%/}" ]] && raw="${raw}${dir%/}"$'\n'
@@ -57,7 +56,6 @@ find_claude_dirs() {
         raw="${raw}$(dirname "$json_file")"$'\n'
     done < <(find "${HOME}" -maxdepth 3 -name ".claude.json" 2>/dev/null | sort)
 
-    # Deduplicate and filter to valid CC data dirs
     while IFS= read -r dir; do
         [[ -z "$dir" ]] && continue
         case "|$seen|" in *"|${dir}|"*) continue ;; esac
@@ -69,96 +67,166 @@ find_claude_dirs() {
 
 # ── JSON tool helpers ─────────────────────────────────────────────────────────
 
-# Convert a Unix/MSYS path to a Windows path for PowerShell (Git Bash only)
 _win_path() {
     if command -v cygpath &>/dev/null; then cygpath -w "$1"; else printf '%s' "$1"; fi
 }
 
 _reg_python() {
-    local pybin="$1" installed_json="$2" settings_json="$3" plugin_dest="$4" now="$5"
+    local pybin="$1" install_dir="$2" plugin_dest="$3" now="$4"
 
-    CCFLUX_INSTALLED_JSON="$installed_json" \
+    CCFLUX_INSTALL_DIR="$install_dir" \
     CCFLUX_PLUGIN_DEST="$plugin_dest" \
     CCFLUX_TIMESTAMP="$now" \
     "$pybin" - <<'PYEOF'
 import json, os
-path, dest, ts = os.environ['CCFLUX_INSTALLED_JSON'], os.environ['CCFLUX_PLUGIN_DEST'], os.environ['CCFLUX_TIMESTAMP']
-d = {"version": 2, "plugins": {}}
-try:
-    with open(path) as f: d = json.load(f)
-except OSError: pass
-d.setdefault("plugins", {})
-d["plugins"]["ccflux@local"] = [{"scope":"user","installPath":dest,"version":"0.1.0","installedAt":ts,"lastUpdated":ts}]
-with open(path, "w") as f: json.dump(d, f, indent=2); f.write("\n")
-PYEOF
 
-    CCFLUX_SETTINGS_JSON="$settings_json" \
-    "$pybin" - <<'PYEOF'
-import json, os
-path = os.environ['CCFLUX_SETTINGS_JSON']
-d = {}
+install_dir  = os.environ['CCFLUX_INSTALL_DIR']
+plugin_dest  = os.environ['CCFLUX_PLUGIN_DEST']
+ts           = os.environ['CCFLUX_TIMESTAMP']
+
+plugins_dir  = os.path.join(install_dir, 'plugins')
+installed_j  = os.path.join(plugins_dir, 'installed_plugins.json')
+settings_j   = os.path.join(install_dir, 'settings.json')
+known_j      = os.path.join(plugins_dir, 'known_marketplaces.json')
+mkt_dir      = os.path.join(plugins_dir, 'marketplaces', 'local')
+
+# Marketplace structure
+os.makedirs(os.path.join(mkt_dir, '.claude-plugin'), exist_ok=True)
+os.makedirs(os.path.join(mkt_dir, 'plugins', 'ccflux'), exist_ok=True)
+catalog = {
+    "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+    "name": "local",
+    "description": "Locally installed plugins",
+    "owner": {"name": "local"},
+    "plugins": [{
+        "name": "ccflux",
+        "description": "Per-turn token usage telemetry for self-hosted receivers",
+        "author": {"name": "local"},
+        "category": "analytics",
+        "source": {"source": "local"}
+    }]
+}
+with open(os.path.join(mkt_dir, '.claude-plugin', 'marketplace.json'), 'w') as f:
+    json.dump(catalog, f, indent=2); f.write('\n')
+
+# known_marketplaces.json
+km = {}
 try:
-    with open(path) as f: d = json.load(f)
+    with open(known_j) as f: km = json.load(f)
 except OSError: pass
-d.setdefault("enabledPlugins", {})
-d["enabledPlugins"]["ccflux@local"] = True
-with open(path, "w") as f: json.dump(d, f, indent=2); f.write("\n")
+km['local'] = {'source': {'source': 'local'}, 'installLocation': mkt_dir, 'lastUpdated': ts}
+with open(known_j, 'w') as f: json.dump(km, f, indent=2); f.write('\n')
+
+# installed_plugins.json
+ip = {'version': 2, 'plugins': {}}
+try:
+    with open(installed_j) as f: ip = json.load(f)
+except OSError: pass
+ip.setdefault('plugins', {})
+ip['plugins']['ccflux@local'] = [{'scope':'user','installPath':plugin_dest,'version':'0.1.0','installedAt':ts,'lastUpdated':ts}]
+with open(installed_j, 'w') as f: json.dump(ip, f, indent=2); f.write('\n')
+
+# settings.json
+s = {}
+try:
+    with open(settings_j) as f: s = json.load(f)
+except OSError: pass
+s.setdefault('enabledPlugins', {})
+s['enabledPlugins']['ccflux@local'] = True
+with open(settings_j, 'w') as f: json.dump(s, f, indent=2); f.write('\n')
 PYEOF
 }
 
 _reg_node() {
-    local nodebin="$1" installed_json="$2" settings_json="$3" plugin_dest="$4" now="$5"
+    local nodebin="$1" install_dir="$2" plugin_dest="$3" now="$4"
 
-    CCFLUX_INSTALLED_JSON="$installed_json" \
+    CCFLUX_INSTALL_DIR="$install_dir" \
     CCFLUX_PLUGIN_DEST="$plugin_dest" \
     CCFLUX_TIMESTAMP="$now" \
     "$nodebin" -e "
-const fs=require('fs'),e=process.env,p=e.CCFLUX_INSTALLED_JSON,dest=e.CCFLUX_PLUGIN_DEST,ts=e.CCFLUX_TIMESTAMP;
-let d={version:2,plugins:{}};try{d=JSON.parse(fs.readFileSync(p,'utf8'));}catch(_){}
-if(!d.plugins)d.plugins={};
-d.plugins['ccflux@local']=[{scope:'user',installPath:dest,version:'0.1.0',installedAt:ts,lastUpdated:ts}];
-fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');"
+const fs=require('fs'),path=require('path'),e=process.env;
+const idir=e.CCFLUX_INSTALL_DIR,dest=e.CCFLUX_PLUGIN_DEST,ts=e.CCFLUX_TIMESTAMP;
+const pdir=path.join(idir,'plugins');
+const mktDir=path.join(pdir,'marketplaces','local');
+const mktPlugin=path.join(mktDir,'plugins','ccflux');
+const mktCp=path.join(mktDir,'.claude-plugin');
 
-    CCFLUX_SETTINGS_JSON="$settings_json" \
-    "$nodebin" -e "
-const fs=require('fs'),e=process.env,p=e.CCFLUX_SETTINGS_JSON;
-let d={};try{d=JSON.parse(fs.readFileSync(p,'utf8'));}catch(_){}
-if(!d.enabledPlugins)d.enabledPlugins={};
-d.enabledPlugins['ccflux@local']=true;
-fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');"
+// Marketplace structure
+[mktCp,mktPlugin].forEach(d=>{try{fs.mkdirSync(d,{recursive:true});}catch(_){}});
+const catalog={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'local',description:'Locally installed plugins',owner:{name:'local'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for self-hosted receivers',author:{name:'local'},category:'analytics',source:{source:'local'}}]};
+fs.writeFileSync(path.join(mktCp,'marketplace.json'),JSON.stringify(catalog,null,2)+'\n');
+
+// known_marketplaces.json
+const knownJ=path.join(pdir,'known_marketplaces.json');
+let km={};try{km=JSON.parse(fs.readFileSync(knownJ,'utf8'));}catch(_){}
+km['local']={source:{source:'local'},installLocation:mktDir,lastUpdated:ts};
+fs.writeFileSync(knownJ,JSON.stringify(km,null,2)+'\n');
+
+// installed_plugins.json
+const ipJ=path.join(pdir,'installed_plugins.json');
+let ip={version:2,plugins:{}};try{ip=JSON.parse(fs.readFileSync(ipJ,'utf8'));}catch(_){}
+if(!ip.plugins)ip.plugins={};
+ip.plugins['ccflux@local']=[{scope:'user',installPath:dest,version:'0.1.0',installedAt:ts,lastUpdated:ts}];
+fs.writeFileSync(ipJ,JSON.stringify(ip,null,2)+'\n');
+
+// settings.json
+const sJ=path.join(idir,'settings.json');
+let s={};try{s=JSON.parse(fs.readFileSync(sJ,'utf8'));}catch(_){}
+if(!s.enabledPlugins)s.enabledPlugins={};
+s.enabledPlugins['ccflux@local']=true;
+fs.writeFileSync(sJ,JSON.stringify(s,null,2)+'\n');"
 }
 
 _reg_powershell() {
-    local psbin="$1" installed_json="$2" settings_json="$3" plugin_dest="$4" now="$5"
+    local psbin="$1" install_dir="$2" plugin_dest="$3" now="$4"
     local tmp="/tmp/ccflux_install_$$.ps1"
 
     cat > "$tmp" << 'PSEOF'
 $ErrorActionPreference = 'Stop'
-$ipath = $env:CCFLUX_INSTALLED_JSON
-$spath = $env:CCFLUX_SETTINGS_JSON
+$idir  = $env:CCFLUX_INSTALL_DIR
 $dest  = $env:CCFLUX_PLUGIN_DEST
 $ts    = $env:CCFLUX_TIMESTAMP
+$pdir  = Join-Path $idir 'plugins'
+$mktDir = Join-Path $pdir 'marketplaces\local'
 
-if (Test-Path $ipath) { $d = Get-Content $ipath -Raw | ConvertFrom-Json }
-else { $d = [PSCustomObject]@{ version = 2; plugins = [PSCustomObject]@{} } }
-if (-not $d.PSObject.Properties['plugins']) {
-    $d | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
+# Marketplace structure
+New-Item -ItemType Directory -Path (Join-Path $mktDir '.claude-plugin') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $mktDir 'plugins\ccflux')  -Force | Out-Null
+$catalog = [ordered]@{
+    '$schema'   = 'https://anthropic.com/claude-code/marketplace.schema.json'
+    name        = 'local'
+    description = 'Locally installed plugins'
+    owner       = @{name='local'}
+    plugins     = @(@{name='ccflux';description='Per-turn token usage telemetry for self-hosted receivers';author=@{name='local'};category='analytics';source=@{source='local'}})
 }
-$entry = @([PSCustomObject]@{ scope='user'; installPath=$dest; version='0.1.0'; installedAt=$ts; lastUpdated=$ts })
-$d.plugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $entry -Force
-$d | ConvertTo-Json -Depth 10 | Set-Content $ipath -Encoding UTF8
+$catalog | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $mktDir '.claude-plugin\marketplace.json') -Encoding UTF8
 
-if (Test-Path $spath) { $s = Get-Content $spath -Raw | ConvertFrom-Json }
+# known_marketplaces.json
+$knownJ = Join-Path $pdir 'known_marketplaces.json'
+if (Test-Path $knownJ) { $km = Get-Content $knownJ -Raw | ConvertFrom-Json }
+else { $km = [PSCustomObject]@{} }
+$km | Add-Member -NotePropertyName 'local' -NotePropertyValue ([PSCustomObject]@{source=[PSCustomObject]@{source='local'};installLocation=$mktDir;lastUpdated=$ts}) -Force
+$km | ConvertTo-Json -Depth 10 | Set-Content $knownJ -Encoding UTF8
+
+# installed_plugins.json
+$ipJ = Join-Path $pdir 'installed_plugins.json'
+if (Test-Path $ipJ) { $ip = Get-Content $ipJ -Raw | ConvertFrom-Json }
+else { $ip = [PSCustomObject]@{version=2;plugins=[PSCustomObject]@{}} }
+if (-not $ip.PSObject.Properties['plugins']) { $ip | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([PSCustomObject]@{}) -Force }
+$entry = @([PSCustomObject]@{scope='user';installPath=$dest;version='0.1.0';installedAt=$ts;lastUpdated=$ts})
+$ip.plugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $entry -Force
+$ip | ConvertTo-Json -Depth 10 | Set-Content $ipJ -Encoding UTF8
+
+# settings.json
+$sJ = Join-Path $idir 'settings.json'
+if (Test-Path $sJ) { $s = Get-Content $sJ -Raw | ConvertFrom-Json }
 else { $s = [PSCustomObject]@{} }
-if (-not $s.PSObject.Properties['enabledPlugins']) {
-    $s | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
-}
+if (-not $s.PSObject.Properties['enabledPlugins']) { $s | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([PSCustomObject]@{}) -Force }
 $s.enabledPlugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $true -Force
-$s | ConvertTo-Json -Depth 10 | Set-Content $spath -Encoding UTF8
+$s | ConvertTo-Json -Depth 10 | Set-Content $sJ -Encoding UTF8
 PSEOF
 
-    CCFLUX_INSTALLED_JSON="$(_win_path "$installed_json")" \
-    CCFLUX_SETTINGS_JSON="$(_win_path "$settings_json")" \
+    CCFLUX_INSTALL_DIR="$(_win_path "$install_dir")" \
     CCFLUX_PLUGIN_DEST="$(_win_path "$plugin_dest")" \
     CCFLUX_TIMESTAMP="$now" \
     "$psbin" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(_win_path "$tmp")"
@@ -167,8 +235,6 @@ PSEOF
 
 register_plugin() {
     local install_dir="$1" plugin_dest="$2"
-    local installed_json="${install_dir}/plugins/installed_plugins.json"
-    local settings_json="${install_dir}/settings.json"
     local now
     now="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 
@@ -193,14 +259,15 @@ register_plugin() {
     fi
 
     if [[ -z "$tool" ]]; then
-        echo "  $(yellow "warning:") No JSON tool found (python/node/powershell)."
-        echo "           Manually add $(dim '"ccflux@local": true') to ${settings_json} enabledPlugins."
+        echo "  $(yellow "warning:") No JSON tool found (python/node/powershell) — plugin not registered."
+        echo "           See the docs for manual registration steps."
         return
     fi
 
-    "_reg_${tool}" "$bin" "$installed_json" "$settings_json" "$plugin_dest" "$now"
-    echo "  updated  plugins/installed_plugins.json  (ccflux@local)"
-    echo "  updated  settings.json  (enabledPlugins: ccflux@local)"
+    "_reg_${tool}" "$bin" "$install_dir" "$plugin_dest" "$now"
+    echo "  updated  plugins/known_marketplaces.json  (local marketplace)"
+    echo "  updated  plugins/installed_plugins.json   (ccflux@local)"
+    echo "  updated  settings.json                    (enabledPlugins: ccflux@local)"
 }
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
@@ -258,7 +325,6 @@ if (( ${#candidates[@]} > 0 )); then
     echo ""
 fi
 
-# Prompt for choice
 while true; do
     if (( ${#candidates[@]} > 0 )); then
         printf "Choose installation target [1]: "

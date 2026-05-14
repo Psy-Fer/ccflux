@@ -216,36 +216,49 @@ if ($BinCount -gt 0) {
 # ── Register plugin in CC's plugin registry ───────────────────────────────────
 
 function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
-    $InstalledJson = Join-Path $InstallDir "plugins\installed_plugins.json"
+    $PluginsDir   = Join-Path $InstallDir "plugins"
+    $InstalledJson = Join-Path $PluginsDir "installed_plugins.json"
     $SettingsJson  = Join-Path $InstallDir "settings.json"
+    $KnownJson     = Join-Path $PluginsDir "known_marketplaces.json"
+    $MktDir        = Join-Path $PluginsDir "marketplaces\local"
     $Now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 
-    # installed_plugins.json
-    if (Test-Path $InstalledJson) {
-        $ipData = Get-Content $InstalledJson -Raw | ConvertFrom-Json
-    } else {
-        $ipData = [PSCustomObject]@{ version = 2; plugins = [PSCustomObject]@{} }
+    # Marketplace catalog
+    New-Item -ItemType Directory -Path (Join-Path $MktDir '.claude-plugin') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $MktDir 'plugins\ccflux')  -Force | Out-Null
+    $catalog = [ordered]@{
+        '$schema'   = 'https://anthropic.com/claude-code/marketplace.schema.json'
+        name        = 'local'
+        description = 'Locally installed plugins'
+        owner       = @{name='local'}
+        plugins     = @(@{name='ccflux';description='Per-turn token usage telemetry for self-hosted receivers';author=@{name='local'};category='analytics';source=@{source='local'}})
     }
+    $catalog | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $MktDir '.claude-plugin\marketplace.json') -Encoding UTF8
+    Write-Host "  updated  plugins\marketplaces\local\  (local marketplace)"
+
+    # known_marketplaces.json
+    if (Test-Path $KnownJson) { $km = Get-Content $KnownJson -Raw | ConvertFrom-Json }
+    else { $km = [PSCustomObject]@{} }
+    $km | Add-Member -NotePropertyName 'local' -NotePropertyValue (
+        [PSCustomObject]@{source=[PSCustomObject]@{source='local'};installLocation=$MktDir;lastUpdated=$Now}
+    ) -Force
+    $km | ConvertTo-Json -Depth 10 | Set-Content $KnownJson -Encoding UTF8
+    Write-Host "  updated  plugins\known_marketplaces.json  (local marketplace)"
+
+    # installed_plugins.json
+    if (Test-Path $InstalledJson) { $ipData = Get-Content $InstalledJson -Raw | ConvertFrom-Json }
+    else { $ipData = [PSCustomObject]@{ version = 2; plugins = [PSCustomObject]@{} } }
     if ($null -eq $ipData.PSObject.Properties['plugins']) {
         $ipData | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
     }
-    $entry = @([PSCustomObject]@{
-        scope       = 'user'
-        installPath = $PluginDest
-        version     = '0.1.0'
-        installedAt = $Now
-        lastUpdated = $Now
-    })
+    $entry = @([PSCustomObject]@{ scope='user'; installPath=$PluginDest; version='0.1.0'; installedAt=$Now; lastUpdated=$Now })
     $ipData.plugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $entry -Force
     $ipData | ConvertTo-Json -Depth 10 | Set-Content $InstalledJson -Encoding UTF8
     Write-Host "  updated  plugins\installed_plugins.json  (ccflux@local)"
 
     # settings.json
-    if (Test-Path $SettingsJson) {
-        $settings = Get-Content $SettingsJson -Raw | ConvertFrom-Json
-    } else {
-        $settings = [PSCustomObject]@{}
-    }
+    if (Test-Path $SettingsJson) { $settings = Get-Content $SettingsJson -Raw | ConvertFrom-Json }
+    else { $settings = [PSCustomObject]@{} }
     if ($null -eq $settings.PSObject.Properties['enabledPlugins']) {
         $settings | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
     }
