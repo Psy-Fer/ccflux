@@ -13,6 +13,15 @@ PLUGIN_NAME="ccflux"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_SRC="${SCRIPT_DIR}/plugin"
 
+# ── Flags ─────────────────────────────────────────────────────────────────────
+OFFLINE=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --offline) OFFLINE=true; shift ;;
+        *) echo "error: unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
 # ── Colour helpers ────────────────────────────────────────────────────────────
 
 if [ -t 1 ]; then
@@ -88,22 +97,23 @@ plugins_dir  = os.path.join(install_dir, 'plugins')
 installed_j  = os.path.join(plugins_dir, 'installed_plugins.json')
 settings_j   = os.path.join(install_dir, 'settings.json')
 known_j      = os.path.join(plugins_dir, 'known_marketplaces.json')
-mkt_dir      = os.path.join(plugins_dir, 'marketplaces', 'local')
+mkt_dir      = os.path.join(plugins_dir, 'marketplaces', 'ccflux')
 
-# Marketplace structure
+# Marketplace catalog (mirrors .claude-plugin/marketplace.json in the repo)
 os.makedirs(os.path.join(mkt_dir, '.claude-plugin'), exist_ok=True)
 os.makedirs(os.path.join(mkt_dir, 'plugins', 'ccflux'), exist_ok=True)
 catalog = {
     "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-    "name": "local",
-    "description": "Locally installed plugins",
-    "owner": {"name": "local"},
+    "name": "ccflux",
+    "description": "ccflux — per-turn token usage telemetry for Claude Code",
+    "owner": {"name": "Psy-Fer", "email": "j.ferguson@garvan.org.au"},
     "plugins": [{
         "name": "ccflux",
-        "description": "Per-turn token usage telemetry for self-hosted receivers",
-        "author": {"name": "local"},
-        "category": "analytics",
-        "source": {"source": "local"}
+        "description": "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver.",
+        "author": {"name": "Psy-Fer"},
+        "category": "monitoring",
+        "source": {"source": "git-subdir", "url": "https://github.com/psy-fer/ccflux.git", "path": "plugin", "ref": "v0.1.0"},
+        "homepage": "https://github.com/psy-fer/ccflux"
     }]
 }
 with open(os.path.join(mkt_dir, '.claude-plugin', 'marketplace.json'), 'w') as f:
@@ -114,7 +124,7 @@ km = {}
 try:
     with open(known_j) as f: km = json.load(f)
 except OSError: pass
-km['local'] = {'source': {'source': 'local'}, 'installLocation': mkt_dir, 'lastUpdated': ts}
+km['ccflux'] = {'source': {'source': 'github', 'repo': 'psy-fer/ccflux'}, 'installLocation': mkt_dir, 'lastUpdated': ts}
 with open(known_j, 'w') as f: json.dump(km, f, indent=2); f.write('\n')
 
 # installed_plugins.json
@@ -123,7 +133,7 @@ try:
     with open(installed_j) as f: ip = json.load(f)
 except OSError: pass
 ip.setdefault('plugins', {})
-ip['plugins']['ccflux@local'] = [{'scope':'user','installPath':plugin_dest,'version':'0.1.0','installedAt':ts,'lastUpdated':ts}]
+ip['plugins']['ccflux@ccflux'] = [{'scope':'user','installPath':plugin_dest,'version':'0.1.0','installedAt':ts,'lastUpdated':ts}]
 with open(installed_j, 'w') as f: json.dump(ip, f, indent=2); f.write('\n')
 
 # settings.json
@@ -132,7 +142,7 @@ try:
     with open(settings_j) as f: s = json.load(f)
 except OSError: pass
 s.setdefault('enabledPlugins', {})
-s['enabledPlugins']['ccflux@local'] = True
+s['enabledPlugins']['ccflux@ccflux'] = True
 with open(settings_j, 'w') as f: json.dump(s, f, indent=2); f.write('\n')
 PYEOF
 }
@@ -147,33 +157,28 @@ _reg_node() {
 const fs=require('fs'),path=require('path'),e=process.env;
 const idir=e.CCFLUX_INSTALL_DIR,dest=e.CCFLUX_PLUGIN_DEST,ts=e.CCFLUX_TIMESTAMP;
 const pdir=path.join(idir,'plugins');
-const mktDir=path.join(pdir,'marketplaces','local');
-const mktPlugin=path.join(mktDir,'plugins','ccflux');
+const mktDir=path.join(pdir,'marketplaces','ccflux');
 const mktCp=path.join(mktDir,'.claude-plugin');
 
-// Marketplace structure
-[mktCp,mktPlugin].forEach(d=>{try{fs.mkdirSync(d,{recursive:true});}catch(_){}});
-const catalog={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'local',description:'Locally installed plugins',owner:{name:'local'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for self-hosted receivers',author:{name:'local'},category:'analytics',source:{source:'local'}}]};
+[mktCp,path.join(mktDir,'plugins','ccflux')].forEach(d=>{try{fs.mkdirSync(d,{recursive:true});}catch(_){}});
+const catalog={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'ccflux',description:'ccflux — per-turn token usage telemetry for Claude Code',owner:{name:'Psy-Fer',email:'j.ferguson@garvan.org.au'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation\\'s self-hosted receiver.',author:{name:'Psy-Fer'},category:'monitoring',source:{source:'git-subdir',url:'https://github.com/psy-fer/ccflux.git',path:'plugin',ref:'v0.1.0'},homepage:'https://github.com/psy-fer/ccflux'}]};
 fs.writeFileSync(path.join(mktCp,'marketplace.json'),JSON.stringify(catalog,null,2)+'\n');
 
-// known_marketplaces.json
 const knownJ=path.join(pdir,'known_marketplaces.json');
 let km={};try{km=JSON.parse(fs.readFileSync(knownJ,'utf8'));}catch(_){}
-km['local']={source:{source:'local'},installLocation:mktDir,lastUpdated:ts};
+km['ccflux']={source:{source:'github',repo:'psy-fer/ccflux'},installLocation:mktDir,lastUpdated:ts};
 fs.writeFileSync(knownJ,JSON.stringify(km,null,2)+'\n');
 
-// installed_plugins.json
 const ipJ=path.join(pdir,'installed_plugins.json');
 let ip={version:2,plugins:{}};try{ip=JSON.parse(fs.readFileSync(ipJ,'utf8'));}catch(_){}
 if(!ip.plugins)ip.plugins={};
-ip.plugins['ccflux@local']=[{scope:'user',installPath:dest,version:'0.1.0',installedAt:ts,lastUpdated:ts}];
+ip.plugins['ccflux@ccflux']=[{scope:'user',installPath:dest,version:'0.1.0',installedAt:ts,lastUpdated:ts}];
 fs.writeFileSync(ipJ,JSON.stringify(ip,null,2)+'\n');
 
-// settings.json
 const sJ=path.join(idir,'settings.json');
 let s={};try{s=JSON.parse(fs.readFileSync(sJ,'utf8'));}catch(_){}
 if(!s.enabledPlugins)s.enabledPlugins={};
-s.enabledPlugins['ccflux@local']=true;
+s.enabledPlugins['ccflux@ccflux']=true;
 fs.writeFileSync(sJ,JSON.stringify(s,null,2)+'\n');"
 }
 
@@ -187,42 +192,47 @@ $idir  = $env:CCFLUX_INSTALL_DIR
 $dest  = $env:CCFLUX_PLUGIN_DEST
 $ts    = $env:CCFLUX_TIMESTAMP
 $pdir  = Join-Path $idir 'plugins'
-$mktDir = Join-Path $pdir 'marketplaces\local'
+$mktDir = Join-Path $pdir 'marketplaces\ccflux'
 
-# Marketplace structure
-New-Item -ItemType Directory -Path (Join-Path $mktDir '.claude-plugin') -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $mktDir 'plugins\ccflux')  -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $mktDir '.claude-plugin')    -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $mktDir 'plugins\ccflux')    -Force | Out-Null
 $catalog = [ordered]@{
     '$schema'   = 'https://anthropic.com/claude-code/marketplace.schema.json'
-    name        = 'local'
-    description = 'Locally installed plugins'
-    owner       = @{name='local'}
-    plugins     = @(@{name='ccflux';description='Per-turn token usage telemetry for self-hosted receivers';author=@{name='local'};category='analytics';source=@{source='local'}})
+    name        = 'ccflux'
+    description = 'ccflux — per-turn token usage telemetry for Claude Code'
+    owner       = [ordered]@{name='Psy-Fer';email='j.ferguson@garvan.org.au'}
+    plugins     = @([ordered]@{
+        name        = 'ccflux'
+        description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
+        author      = @{name='Psy-Fer'}
+        category    = 'monitoring'
+        source      = [ordered]@{source='git-subdir';url='https://github.com/psy-fer/ccflux.git';path='plugin';ref='v0.1.0'}
+        homepage    = 'https://github.com/psy-fer/ccflux'
+    })
 }
 $catalog | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $mktDir '.claude-plugin\marketplace.json') -Encoding UTF8
 
-# known_marketplaces.json
 $knownJ = Join-Path $pdir 'known_marketplaces.json'
 if (Test-Path $knownJ) { $km = Get-Content $knownJ -Raw | ConvertFrom-Json }
 else { $km = [PSCustomObject]@{} }
-$km | Add-Member -NotePropertyName 'local' -NotePropertyValue ([PSCustomObject]@{source=[PSCustomObject]@{source='local'};installLocation=$mktDir;lastUpdated=$ts}) -Force
+$km | Add-Member -NotePropertyName 'ccflux' -NotePropertyValue (
+    [PSCustomObject]@{source=[PSCustomObject]@{source='github';repo='psy-fer/ccflux'};installLocation=$mktDir;lastUpdated=$ts}
+) -Force
 $km | ConvertTo-Json -Depth 10 | Set-Content $knownJ -Encoding UTF8
 
-# installed_plugins.json
 $ipJ = Join-Path $pdir 'installed_plugins.json'
 if (Test-Path $ipJ) { $ip = Get-Content $ipJ -Raw | ConvertFrom-Json }
 else { $ip = [PSCustomObject]@{version=2;plugins=[PSCustomObject]@{}} }
 if (-not $ip.PSObject.Properties['plugins']) { $ip | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([PSCustomObject]@{}) -Force }
 $entry = @([PSCustomObject]@{scope='user';installPath=$dest;version='0.1.0';installedAt=$ts;lastUpdated=$ts})
-$ip.plugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $entry -Force
+$ip.plugins | Add-Member -NotePropertyName 'ccflux@ccflux' -NotePropertyValue $entry -Force
 $ip | ConvertTo-Json -Depth 10 | Set-Content $ipJ -Encoding UTF8
 
-# settings.json
 $sJ = Join-Path $idir 'settings.json'
 if (Test-Path $sJ) { $s = Get-Content $sJ -Raw | ConvertFrom-Json }
 else { $s = [PSCustomObject]@{} }
 if (-not $s.PSObject.Properties['enabledPlugins']) { $s | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([PSCustomObject]@{}) -Force }
-$s.enabledPlugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $true -Force
+$s.enabledPlugins | Add-Member -NotePropertyName 'ccflux@ccflux' -NotePropertyValue $true -Force
 $s | ConvertTo-Json -Depth 10 | Set-Content $sJ -Encoding UTF8
 PSEOF
 
@@ -265,9 +275,9 @@ register_plugin() {
     fi
 
     "_reg_${tool}" "$bin" "$install_dir" "$plugin_dest" "$now"
-    echo "  updated  plugins/known_marketplaces.json  (local marketplace)"
-    echo "  updated  plugins/installed_plugins.json   (ccflux@local)"
-    echo "  updated  settings.json                    (enabledPlugins: ccflux@local)"
+    echo "  updated  plugins/known_marketplaces.json  (ccflux marketplace)"
+    echo "  updated  plugins/installed_plugins.json   (ccflux@ccflux)"
+    echo "  updated  settings.json                    (enabledPlugins: ccflux@ccflux)"
 }
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
@@ -411,6 +421,11 @@ if [[ -d "${PLUGIN_SRC}/bin" ]] && (( bin_count > 0 )); then
 else
     mkdir -p "${PLUGIN_DEST}/bin"
     echo "  created bin/  $(yellow "(empty — add binaries before using)")"
+fi
+
+if [[ "$OFFLINE" == "true" ]]; then
+    touch "${PLUGIN_DEST}/bin/.no-auto-download"
+    echo "  created bin/.no-auto-download  $(dim "(auto-download disabled)")"
 fi
 
 # ── Register plugin in CC's plugin registry ───────────────────────────────────

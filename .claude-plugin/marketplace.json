@@ -1,6 +1,7 @@
 {
-  "name": "ccflux-local",
-  "marketplaceVersion": "1.0.0",
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ccflux",
+  "description": "ccflux — per-turn token usage telemetry for Claude Code",
   "owner": {
     "name": "Psy-Fer",
     "email": "j.ferguson@garvan.org.au"
@@ -8,14 +9,18 @@
   "plugins": [
     {
       "name": "ccflux",
-      "description": "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver.",
+      "description": "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver — no message content is ever collected.",
       "author": {
-        "name": "Psy-Fer",
-        "email": "j.ferguson@garvan.org.au"
+        "name": "Psy-Fer"
       },
       "category": "monitoring",
-      "source": "./plugin",
-      "version": "0.1.0"
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/psy-fer/ccflux.git",
+        "path": "plugin",
+        "ref": "v0.1.0"
+      },
+      "homepage": "https://github.com/psy-fer/ccflux"
     }
   ]
 }

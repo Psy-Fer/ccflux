@@ -58,39 +58,39 @@ function Deregister-Plugin ([string]$InstallDir) {
     $InstalledJson = Join-Path $PluginsDir "installed_plugins.json"
     $SettingsJson  = Join-Path $InstallDir "settings.json"
     $KnownJson     = Join-Path $PluginsDir "known_marketplaces.json"
-    $MktDir        = Join-Path $PluginsDir "marketplaces\local"
+    $MktDir        = Join-Path $PluginsDir "marketplaces\ccflux"
 
     if (Test-Path $InstalledJson) {
         $ipData = Get-Content $InstalledJson -Raw | ConvertFrom-Json
-        if ($null -ne $ipData.plugins.PSObject.Properties['ccflux@local']) {
-            $ipData.plugins.PSObject.Properties.Remove('ccflux@local')
+        if ($null -ne $ipData.plugins.PSObject.Properties['ccflux@ccflux']) {
+            $ipData.plugins.PSObject.Properties.Remove('ccflux@ccflux')
             $ipData | ConvertTo-Json -Depth 10 | Set-Content $InstalledJson -Encoding UTF8
-            Write-Host "  updated  plugins\installed_plugins.json  (removed ccflux@local)"
+            Write-Host "  updated  plugins\installed_plugins.json  (removed ccflux@ccflux)"
         }
     }
 
     if (Test-Path $SettingsJson) {
         $settings = Get-Content $SettingsJson -Raw | ConvertFrom-Json
         if ($null -ne $settings.PSObject.Properties['enabledPlugins'] -and
-            $null -ne $settings.enabledPlugins.PSObject.Properties['ccflux@local']) {
-            $settings.enabledPlugins.PSObject.Properties.Remove('ccflux@local')
+            $null -ne $settings.enabledPlugins.PSObject.Properties['ccflux@ccflux']) {
+            $settings.enabledPlugins.PSObject.Properties.Remove('ccflux@ccflux')
             $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsJson -Encoding UTF8
-            Write-Host "  updated  settings.json  (removed ccflux@local)"
+            Write-Host "  updated  settings.json  (removed ccflux@ccflux)"
         }
     }
 
     if (Test-Path $KnownJson) {
         $km = Get-Content $KnownJson -Raw | ConvertFrom-Json
-        if ($null -ne $km.PSObject.Properties['local']) {
-            $km.PSObject.Properties.Remove('local')
+        if ($null -ne $km.PSObject.Properties['ccflux']) {
+            $km.PSObject.Properties.Remove('ccflux')
             $km | ConvertTo-Json -Depth 10 | Set-Content $KnownJson -Encoding UTF8
-            Write-Host "  updated  plugins\known_marketplaces.json  (removed local marketplace)"
+            Write-Host "  updated  plugins\known_marketplaces.json  (removed ccflux marketplace)"
         }
     }
 
     if (Test-Path $MktDir -PathType Container) {
         Remove-Item $MktDir -Recurse -Force
-        Write-Host "  removed  plugins\marketplaces\local\"
+        Write-Host "  removed  plugins\marketplaces\ccflux\"
     }
 }
 
