@@ -114,6 +114,7 @@ if offline:
             "description": "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver.",
             "author": {"name": "Psy-Fer"},
             "category": "monitoring",
+            "source": {"source": "directory", "path": plugin_dest},
             "homepage": "https://github.com/psy-fer/ccflux"
         }]
     }
@@ -167,6 +168,9 @@ try:
 except OSError: pass
 s.setdefault('enabledPlugins', {})
 s['enabledPlugins']['ccflux@ccflux'] = True
+if offline:
+    s.setdefault('extraKnownMarketplaces', {})
+    s['extraKnownMarketplaces']['ccflux'] = {'source': {'source': 'directory', 'path': mkt_dir}}
 with open(settings_j, 'w') as f: json.dump(s, f, indent=2); f.write('\n')
 PYEOF
 }
@@ -191,7 +195,7 @@ function writeJ(p,d){fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');}
 
 if(offline){
   [mktCp,path.join(mktDir,'plugins','ccflux')].forEach(d=>{try{fs.mkdirSync(d,{recursive:true});}catch(_){}});
-  const offcat={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'ccflux',description:'ccflux — per-turn token usage telemetry for Claude Code',owner:{name:'Psy-Fer',email:'j.ferguson@garvan.org.au'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation\\'s self-hosted receiver.',author:{name:'Psy-Fer'},category:'monitoring',homepage:'https://github.com/psy-fer/ccflux'}]};
+  const offcat={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'ccflux',description:'ccflux — per-turn token usage telemetry for Claude Code',owner:{name:'Psy-Fer',email:'j.ferguson@garvan.org.au'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation\\'s self-hosted receiver.',author:{name:'Psy-Fer'},category:'monitoring',source:{source:'directory',path:dest},homepage:'https://github.com/psy-fer/ccflux'}]};
   writeJ(path.join(mktCp,'marketplace.json'),offcat);
   const km=readJ(knownJ)||{};
   km['ccflux']={source:{source:'directory',path:mktDir},installLocation:mktDir,lastUpdated:ts};
@@ -215,6 +219,7 @@ const sJ=path.join(idir,'settings.json');
 let s={};try{s=JSON.parse(fs.readFileSync(sJ,'utf8'));}catch(_){}
 if(!s.enabledPlugins)s.enabledPlugins={};
 s.enabledPlugins['ccflux@ccflux']=true;
+if(offline){if(!s.extraKnownMarketplaces)s.extraKnownMarketplaces={};s.extraKnownMarketplaces['ccflux']={source:{source:'directory',path:mktDir}};}
 fs.writeFileSync(sJ,JSON.stringify(s,null,2)+'\n');"
 }
 
@@ -240,6 +245,7 @@ if ($offline) {
         description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
         author      = @{name='Psy-Fer'}
         category    = 'monitoring'
+        source      = [ordered]@{source='directory';path=$dest}
         homepage    = 'https://github.com/psy-fer/ccflux'
     }
     $catalog = [ordered]@{
@@ -296,6 +302,10 @@ if (Test-Path $sJ) { $s = Get-Content $sJ -Raw | ConvertFrom-Json }
 else { $s = [PSCustomObject]@{} }
 if (-not $s.PSObject.Properties['enabledPlugins']) { $s | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([PSCustomObject]@{}) -Force }
 $s.enabledPlugins | Add-Member -NotePropertyName 'ccflux@ccflux' -NotePropertyValue $true -Force
+if ($offline) {
+    if (-not $s.PSObject.Properties['extraKnownMarketplaces']) { $s | Add-Member -NotePropertyName 'extraKnownMarketplaces' -NotePropertyValue ([PSCustomObject]@{}) -Force }
+    $s.extraKnownMarketplaces | Add-Member -NotePropertyName 'ccflux' -NotePropertyValue ([PSCustomObject]@{source=[PSCustomObject]@{source='directory';path=$mktDir}}) -Force
+}
 $s | ConvertTo-Json -Depth 10 | Set-Content $sJ -Encoding UTF8
 PSEOF
 

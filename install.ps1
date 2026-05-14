@@ -238,6 +238,7 @@ function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
             description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
             author      = @{name='Psy-Fer'}
             category    = 'monitoring'
+            source      = [ordered]@{source='directory';path=$PluginDest}
             homepage    = 'https://github.com/psy-fer/ccflux'
         }
         $catalog = [ordered]@{
@@ -303,6 +304,14 @@ function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
         $settings | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
     }
     $settings.enabledPlugins | Add-Member -NotePropertyName 'ccflux@ccflux' -NotePropertyValue $true -Force
+    if ($Offline) {
+        if ($null -eq $settings.PSObject.Properties['extraKnownMarketplaces']) {
+            $settings | Add-Member -NotePropertyName 'extraKnownMarketplaces' -NotePropertyValue ([PSCustomObject]@{}) -Force
+        }
+        $settings.extraKnownMarketplaces | Add-Member -NotePropertyName 'ccflux' -NotePropertyValue (
+            [PSCustomObject]@{source=[PSCustomObject]@{source='directory';path=$MktDir}}
+        ) -Force
+    }
     $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsJson -Encoding UTF8
     Write-Host "  updated  settings.json  (enabledPlugins: ccflux@ccflux)"
 }
