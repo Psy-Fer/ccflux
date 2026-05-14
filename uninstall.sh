@@ -73,7 +73,7 @@ deregister_plugin() {
 
     local python_bin=""
     for p in python3 python; do
-        command -v "$p" &>/dev/null && { python_bin="$p"; break; }
+        command -v "$p" &>/dev/null && "$p" -c "import sys" 2>/dev/null && { python_bin="$p"; break; }
     done
 
     if [[ -z "$python_bin" ]]; then
