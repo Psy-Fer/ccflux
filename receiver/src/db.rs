@@ -559,13 +559,23 @@ pub async fn admin_device_keys(pool: &SqlitePool) -> Result<Vec<AdminDeviceKey>,
 pub async fn fetch_events_for_windows(
     pool: &SqlitePool,
 ) -> Result<Vec<crate::billing::RawEvent>, sqlx::Error> {
+    fetch_events_since(pool, 30).await
+}
+
+/// Fetches usage events for the last `days` days.  Used by both the dashboard
+/// (30-day window) and the tier inference pass (configurable lookback).
+async fn fetch_events_since(
+    pool: &SqlitePool,
+    days: i64,
+) -> Result<Vec<crate::billing::RawEvent>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT user_email, timestamp_utc, session_id,
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
          FROM usage_events
-         WHERE timestamp_utc >= datetime('now', '-30 days')
+         WHERE timestamp_utc >= datetime('now', '-' || ? || ' days')
          ORDER BY user_email, timestamp_utc",
     )
+    .bind(days)
     .fetch_all(pool)
     .await?;
     Ok(rows
@@ -580,6 +590,70 @@ pub async fn fetch_events_for_windows(
             cache_write_tokens: r.get("cache_write_tokens"),
         })
         .collect())
+}
+
+/// Fetches usage events for tier inference with a configurable lookback.
+pub async fn fetch_events_for_tier_inference(
+    pool: &SqlitePool,
+    lookback_days: i64,
+) -> Result<Vec<crate::billing::RawEvent>, sqlx::Error> {
+    fetch_events_since(pool, lookback_days).await
+}
+
+/// Loads all tier hints from the DB into a HashMap keyed by email.
+pub async fn load_tier_hints(
+    pool: &SqlitePool,
+) -> Result<std::collections::HashMap<String, crate::tiers::TierClassification>, sqlx::Error> {
+    let rows =
+        sqlx::query("SELECT email, tier_label, peak_tokens, method, window_count FROM tier_hints")
+            .fetch_all(pool)
+            .await?;
+
+    Ok(rows
+        .iter()
+        .map(|r| {
+            let email: String = r.get("email");
+            let method: String = r.get("method");
+            let window_count = r.get::<i64, _>("window_count") as usize;
+            let hint = crate::tiers::TierClassification {
+                label: r.get("tier_label"),
+                peak_tokens: r.get("peak_tokens"),
+                confidence: crate::tiers::confidence_from(&method, window_count),
+                method,
+                window_count,
+            };
+            (email, hint)
+        })
+        .collect())
+}
+
+/// Persists tier classifications to `tier_hints`.
+/// Rows where method = 'limit_hit' are never overwritten — those are exact
+/// signals from a confirmed 429 event and take precedence over inference.
+pub async fn save_tier_hints(
+    pool: &SqlitePool,
+    hints: &std::collections::HashMap<String, crate::tiers::TierClassification>,
+) -> Result<(), sqlx::Error> {
+    for (email, hint) in hints {
+        sqlx::query(
+            "INSERT INTO tier_hints (email, tier_label, peak_tokens, method, window_count, updated_at)
+             VALUES (?, ?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(email) DO UPDATE SET
+                 tier_label   = excluded.tier_label,
+                 peak_tokens  = excluded.peak_tokens,
+                 window_count = excluded.window_count,
+                 updated_at   = excluded.updated_at
+             WHERE method != 'limit_hit'",
+        )
+        .bind(email)
+        .bind(&hint.label)
+        .bind(hint.peak_tokens)
+        .bind(&hint.method)
+        .bind(hint.window_count as i64)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn admin_revoke_key(pool: &SqlitePool, public_key: &str) -> Result<(), sqlx::Error> {

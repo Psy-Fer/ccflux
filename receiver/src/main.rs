@@ -19,6 +19,7 @@ mod db;
 mod health;
 mod keys;
 mod model;
+mod tiers;
 mod token;
 
 use db::SigVerifyResult;
@@ -34,6 +35,7 @@ struct AppState {
     require_signatures: bool,
     admin_token: Option<String>,
     cookie_secure: bool,
+    tier_cache: Arc<Mutex<HashMap<String, tiers::TierClassification>>>,
 }
 
 #[tokio::main]
@@ -53,6 +55,8 @@ async fn main() {
     let cookie_secure: bool = std::env::var("COOKIE_SECURE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
+    let tier_inference_days: i64 = env_or("TIER_INFERENCE_DAYS", 90);
+    let tier_inference_interval_secs: u64 = env_or("TIER_INFERENCE_INTERVAL_SECS", 600);
 
     println!("ccflux-receiver config:");
     println!("  DATABASE_PATH              = {db_path}");
@@ -71,9 +75,17 @@ async fn main() {
         }
     );
     println!("  COOKIE_SECURE              = {cookie_secure}");
+    println!("  TIER_INFERENCE_DAYS        = {tier_inference_days}");
+    println!("  TIER_INFERENCE_INTERVAL    = {tier_inference_interval_secs}s");
 
     let pool = db::init(&db_path).await.expect("failed to init database");
     let pool = Arc::new(pool);
+
+    // Seed the in-memory tier cache from persisted hints so the dashboard is
+    // populated immediately on restart, before the first inference pass runs.
+    let initial_tiers = db::load_tier_hints(&pool).await.unwrap_or_default();
+    let tier_cache: Arc<Mutex<HashMap<String, tiers::TierClassification>>> =
+        Arc::new(Mutex::new(initial_tiers));
 
     let state = AppState {
         pool: pool.clone(),
@@ -84,20 +96,41 @@ async fn main() {
         require_signatures,
         admin_token,
         cookie_secure,
+        tier_cache: tier_cache.clone(),
     };
 
     // Purge expired access tokens once per hour.
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(3600));
-        loop {
-            interval.tick().await;
-            match db::purge_expired_access_tokens(&pool).await {
-                Ok(n) if n > 0 => println!("purged {n} expired access tokens"),
-                Err(e) => eprintln!("purge error: {e}"),
-                _ => {}
+    {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3600));
+            loop {
+                interval.tick().await;
+                match db::purge_expired_access_tokens(&pool).await {
+                    Ok(n) if n > 0 => println!("purged {n} expired access tokens"),
+                    Err(e) => eprintln!("purge error: {e}"),
+                    _ => {}
+                }
             }
-        }
-    });
+        });
+    }
+
+    // Recompute tier classifications periodically.  First tick fires immediately
+    // (tokio interval default), so classifications are fresh on startup.
+    {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(tier_inference_interval_secs));
+            loop {
+                interval.tick().await;
+                match run_tier_inference(&pool, tier_inference_days, &tier_cache).await {
+                    Ok(n) => println!("tier inference: classified {n} users"),
+                    Err(e) => eprintln!("tier inference error: {e}"),
+                }
+            }
+        });
+    }
 
     let app = Router::new()
         .merge(admin::router())
@@ -112,6 +145,24 @@ async fn main() {
     println!("ccflux-receiver listening on {listen_addr}");
     let listener = tokio::net::TcpListener::bind(&listen_addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn run_tier_inference(
+    pool: &SqlitePool,
+    lookback_days: i64,
+    cache: &Arc<Mutex<HashMap<String, tiers::TierClassification>>>,
+) -> Result<usize, String> {
+    let events = db::fetch_events_for_tier_inference(pool, lookback_days)
+        .await
+        .map_err(|e| e.to_string())?;
+    let windows = billing::compute_billing_windows(events);
+    let new_tiers = tiers::infer_tiers(&windows);
+    let n = new_tiers.len();
+    db::save_tier_hints(pool, &new_tiers)
+        .await
+        .map_err(|e| e.to_string())?;
+    *cache.lock().await = new_tiers;
+    Ok(n)
 }
 
 async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
@@ -270,6 +321,7 @@ mod tests {
             require_signatures: false,
             admin_token: None,
             cookie_secure: false,
+            tier_cache: Arc::new(Mutex::new(HashMap::new())),
         };
         (state, pool)
     }

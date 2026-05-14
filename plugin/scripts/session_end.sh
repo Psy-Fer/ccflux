@@ -2,8 +2,6 @@
 # SessionEnd hook — flushes remaining turns and marks the session closed.
 # Detached with nohup/disown because CC kills SessionEnd hooks before async
 # work completes. Stop-per-turn is the primary reporting path.
-# Allow plain HTTP for local dev. Remove before production deployment.
-export CCFLUX_ALLOW_HTTP=1
 
 INPUT="$(cat)"
 

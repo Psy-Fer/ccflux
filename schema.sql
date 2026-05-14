@@ -66,3 +66,15 @@ CREATE TABLE IF NOT EXISTS usage_events (
 CREATE INDEX IF NOT EXISTS idx_usage_user     ON usage_events(user_email);
 CREATE INDEX IF NOT EXISTS idx_usage_session  ON usage_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_usage_time     ON usage_events(timestamp_utc);
+
+-- Inferred or confirmed tier classification per user.
+-- method: 'inferred' (from usage pattern) | 'limit_hit' (confirmed from 429 event — future).
+-- Rows where method = 'limit_hit' are never overwritten by the inference pass.
+CREATE TABLE IF NOT EXISTS tier_hints (
+    email           TEXT PRIMARY KEY,
+    tier_label      TEXT NOT NULL DEFAULT 'unknown',
+    peak_tokens     INTEGER,
+    method          TEXT NOT NULL DEFAULT 'inferred',
+    window_count    INTEGER NOT NULL DEFAULT 0,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

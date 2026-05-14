@@ -3,9 +3,6 @@
 # Endpoint and token are read by the binary from CLAUDE_PLUGIN_OPTION_* env vars
 # or <data_dir>/ccflux/config.json. Never passed as CLI args.
 set -euo pipefail
-# Allow plain HTTP for local dev. Remove before production deployment.
-export CCFLUX_ALLOW_HTTP=1
-
 INPUT="$(cat)"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"

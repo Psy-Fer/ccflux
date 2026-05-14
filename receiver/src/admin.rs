@@ -27,6 +27,7 @@ pub fn router() -> Router<AppState> {
         .route("/admin/users/provision", post(handle_provision_user))
         .route("/admin/users/revoke", post(handle_revoke_user))
         .route("/admin/users/reissue", post(handle_reissue_token))
+        .route("/admin/logout", get(handle_logout))
 }
 
 fn ct_eq(a: &str, b: &str) -> bool {
@@ -123,6 +124,20 @@ pub async fn handle_revoke_key(
     Redirect::to("/admin/").into_response()
 }
 
+pub async fn handle_logout(State(state): State<AppState>) -> Response {
+    let secure = if state.cookie_secure { "; Secure" } else { "" };
+    axum::http::Response::builder()
+        .status(StatusCode::SEE_OTHER)
+        .header(header::LOCATION, "/admin/login")
+        .header(
+            header::SET_COOKIE,
+            format!("{COOKIE_NAME}=; HttpOnly; Path=/admin; SameSite=Strict; Max-Age=0{secure}"),
+        )
+        .body(Body::empty())
+        .unwrap()
+        .into_response()
+}
+
 pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if state.admin_token.is_none() {
         return disabled_response();
@@ -180,8 +195,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
 
     let chart_svg = svg_line_chart(&daily);
     let chart = format!(
-        r#"<div class="panel">
-  <div class="panel-head">Daily billed tokens — last 30 days</div>
+        r#"<div class="panel" id="p-daily">
+  <div class="panel-head" onclick="togglePanel('p-daily')">Daily billed tokens — last 30 days <span class="chv">&#9660;</span></div>
   <div class="chart-wrap">{chart_svg}</div>
 </div>"#
     );
@@ -192,8 +207,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
         .collect();
     let user_bar_svg = svg_hbar_chart(&user_bar_rows);
     let user_bar = format!(
-        r#"<div class="panel">
-  <div class="panel-head">Billed tokens by user — last 30 days</div>
+        r#"<div class="panel" id="p-user-bar">
+  <div class="panel-head" onclick="togglePanel('p-user-bar')">Billed tokens by user — last 30 days <span class="chv">&#9660;</span></div>
   <div class="chart-wrap">{user_bar_svg}</div>
 </div>"#
     );
@@ -204,18 +219,25 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
         .collect();
     let model_bar_svg = svg_hbar_chart(&model_bar_rows);
     let model_bar = format!(
-        r#"<div class="panel">
-  <div class="panel-head">Billed tokens by model — all time</div>
+        r#"<div class="panel" id="p-model-bar">
+  <div class="panel-head" onclick="togglePanel('p-model-bar')">Billed tokens by model — all time <span class="chv">&#9660;</span></div>
   <div class="chart-wrap">{model_bar_svg}</div>
 </div>"#
     );
 
+    let tier_snapshot = state.tier_cache.lock().await.clone();
+
     let user_rows: String = if users.is_empty() {
-        r#"<tr><td colspan="8" class="empty">No data in the last 30 days</td></tr>"#.to_string()
+        r#"<tr><td colspan="9" class="empty">No data in the last 30 days</td></tr>"#.to_string()
     } else {
         users
             .iter()
             .map(|u| {
+                let tier = tier_snapshot
+                    .get(&u.email)
+                    .cloned()
+                    .unwrap_or_else(crate::tiers::TierClassification::unknown);
+                let tier_cell = tier_badge(&tier);
                 format!(
                     r#"<tr>
   <td>{}</td>
@@ -223,6 +245,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
   <td class="num">{}</td><td class="num">{}</td>
   <td class="num">{}</td><td class="num">{}</td>
   <td class="mono sm">{}</td>
+  <td>{tier_cell}</td>
 </tr>"#,
                     esc(&u.email),
                     fmt_num(u.input_tokens),
@@ -238,13 +261,13 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     };
 
     let user_table = format!(
-        r#"<div class="panel">
-  <div class="panel-head">Usage by user — last 30 days</div>
+        r#"<div class="panel" id="p-user-tbl">
+  <div class="panel-head" onclick="togglePanel('p-user-tbl')">Usage by user — last 30 days <span class="chv">&#9660;</span></div>
   <table>
     <thead><tr>
       <th>Email</th><th>Input</th><th>Output</th>
       <th>Cache reads</th><th>Cache writes</th>
-      <th>Sessions</th><th>Turns</th><th>Last active</th>
+      <th>Sessions</th><th>Turns</th><th>Last active</th><th>Tier</th>
     </tr></thead>
     <tbody>{user_rows}</tbody>
   </table>
@@ -279,8 +302,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     };
 
     let model_table = format!(
-        r#"<div class="panel">
-  <div class="panel-head">Model breakdown</div>
+        r#"<div class="panel" id="p-model-tbl">
+  <div class="panel-head" onclick="togglePanel('p-model-tbl')">Model breakdown <span class="chv">&#9660;</span></div>
   <table>
     <thead><tr>
       <th>Model</th><th>Users</th><th>Turns</th>
@@ -337,8 +360,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     };
 
     let key_table = format!(
-        r#"<div class="panel">
-  <div class="panel-head">Device keys</div>
+        r#"<div class="panel" id="p-keys">
+  <div class="panel-head" onclick="togglePanel('p-keys')">Device keys <span class="chv">&#9660;</span></div>
   <table>
     <thead><tr>
       <th>Email</th><th>Device</th><th>Key (short)</th>
@@ -380,8 +403,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     };
 
     let event_table = format!(
-        r#"<div class="panel">
-  <div class="panel-head">Recent events — last 50</div>
+        r#"<div class="panel" id="p-events">
+  <div class="panel-head" onclick="togglePanel('p-events')">Recent events — last 50 <span class="chv">&#9660;</span></div>
   <table>
     <thead><tr>
       <th>Received</th><th>User</th><th>Session</th><th>Turn</th>
@@ -477,8 +500,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     };
 
     let users_panel = format!(
-        r#"<div class="panel">
-  <div class="panel-head">User provisioning</div>
+        r#"<div class="panel" id="p-provision">
+  <div class="panel-head" onclick="togglePanel('p-provision')">User provisioning <span class="chv">&#9660;</span></div>
   {prov_form}
   <table>
     <thead><tr>
@@ -542,8 +565,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
         })
         .collect();
     let win_bar = format!(
-        r#"<div class="panel">
-  <div class="panel-head">5-hour billing windows — peak billed tokens by user (last 30 days)</div>
+        r#"<div class="panel" id="p-win-bar">
+  <div class="panel-head" onclick="togglePanel('p-win-bar')">5-hour billing windows — peak billed tokens by user (last 30 days) <span class="chv">&#9660;</span></div>
   <div class="chart-wrap">{win_bar_svg}</div>
   <ul class="win-note">{win_bar_note}</ul>
 </div>"#
@@ -594,8 +617,8 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     };
 
     let win_table = format!(
-        r#"<div class="panel">
-  <div class="panel-head">5-hour billing windows — last 7 days</div>
+        r#"<div class="panel" id="p-win-tbl">
+  <div class="panel-head" onclick="togglePanel('p-win-tbl')">5-hour billing windows — last 7 days <span class="chv">&#9660;</span></div>
   <table>
     <thead><tr>
       <th>User</th><th>Window start</th><th>Window end</th>
@@ -611,6 +634,11 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
         r#"<div class="topbar">
   <h1>ccflux admin</h1>
   <span class="sub">Updated <span data-utc="{now_iso}">{now_display}</span></span>
+  <input class="ar-inp" id="ar-inp" type="number" min="5" max="3600" value="60" onchange="onIntervalChange()" title="Refresh interval in seconds">
+  <label class="ar-lbl" for="ar-inp">s</label>
+  <button class="ar-btn" id="ar-btn" onclick="toggleAutoRefresh()">Auto-refresh</button>
+  <span class="ar-cd" id="ar-cd"></span>
+  <a class="logout-link" href="/admin/logout">Logout</a>
 </div>
 <div class="wrap">
   {cards}
@@ -826,6 +854,43 @@ fn card(label: &str, value: &str) -> String {
     )
 }
 
+fn tier_badge(t: &crate::tiers::TierClassification) -> String {
+    let (cls, title) = match t.confidence.as_str() {
+        "high" => (
+            "tier-badge tier-exact",
+            format!(
+                "Confirmed via limit event · peak ~{}",
+                fmt_num(t.peak_tokens.unwrap_or(0))
+            ),
+        ),
+        "medium" => (
+            "tier-badge tier-med",
+            format!(
+                "Inferred · {} windows · peak ~{}",
+                t.window_count,
+                fmt_num(t.peak_tokens.unwrap_or(0))
+            ),
+        ),
+        "low" => (
+            "tier-badge tier-low",
+            format!(
+                "Inferred (low confidence) · {} windows · peak ~{}",
+                t.window_count,
+                fmt_num(t.peak_tokens.unwrap_or(0))
+            ),
+        ),
+        _ => (
+            "tier-badge tier-unk",
+            format!("Insufficient data ({} windows)", t.window_count),
+        ),
+    };
+    format!(
+        r#"<span class="{cls}" title="{}">{}</span>"#,
+        esc(&title),
+        esc(&t.label)
+    )
+}
+
 fn svg_line_chart(stats: &[db::AdminDailyStat]) -> String {
     // Single-quoted SVG attributes throughout to avoid "# terminating r#"…"# raw strings.
     let (w, h, pl, pr, pt, pb) = (760i64, 160i64, 60i64, 16i64, 16i64, 36i64);
@@ -981,7 +1046,25 @@ fn page_shell(title: &str, content: &str) -> String {
     .card .lbl{{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#8894a4;margin-bottom:.3rem}}
     .card .val{{font-size:1.55rem;font-weight:700;color:#1a1a2e;line-height:1}}
     .panel{{background:white;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:1.25rem;overflow:hidden}}
-    .panel-head{{padding:.65rem 1.1rem;border-bottom:1px solid #eef0f3;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#5a6676}}
+    .panel-head{{padding:.65rem 1.1rem;border-bottom:1px solid #eef0f3;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#5a6676;cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center}}
+    .panel.collapsed>.panel-head{{border-bottom:none}}
+    .panel.collapsed>*:not(.panel-head){{display:none}}
+    .chv{{font-size:.65rem;opacity:.4;transition:transform .15s;display:inline-block;flex-shrink:0}}
+    .panel.collapsed .chv{{transform:rotate(-90deg)}}
+    .logout-link{{color:rgba(255,255,255,.6);font-size:.82rem;text-decoration:none;margin-left:1.25rem;white-space:nowrap}}
+    .logout-link:hover{{color:white}}
+    .ar-inp{{background:transparent;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.75);font-size:.75rem;border-radius:4px;padding:.15rem .3rem;margin-left:.75rem;width:3.5rem;text-align:center;-moz-appearance:textfield}}
+    .ar-inp::-webkit-inner-spin-button,.ar-inp::-webkit-outer-spin-button{{-webkit-appearance:none}}
+    .ar-lbl{{font-size:.75rem;color:rgba(255,255,255,.45);margin-left:.2rem}}
+    .ar-btn{{background:none;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.55);padding:.2rem .55rem;border-radius:4px;font-size:.78rem;cursor:pointer;margin-left:.4rem;white-space:nowrap}}
+    .ar-btn.ar-on{{border-color:rgba(79,142,247,.8);color:#4f8ef7}}
+    .ar-btn:hover{{color:white;border-color:rgba(255,255,255,.55)}}
+    .ar-cd{{font-size:.75rem;color:rgba(255,255,255,.4);margin-left:.35rem;min-width:5rem;display:inline-block}}
+    .tier-badge{{display:inline-block;padding:.15rem .45rem;border-radius:3px;font-size:.7rem;font-weight:600;letter-spacing:.04em;white-space:nowrap;cursor:default}}
+    .tier-exact{{background:#d1fae5;color:#065f46}}
+    .tier-med{{background:#dbeafe;color:#1e40af}}
+    .tier-low{{background:#fef9c3;color:#854d0e}}
+    .tier-unk{{background:#f1f5f9;color:#94a3b8}}
     .chart-wrap{{padding:1rem 1.1rem .75rem;overflow-x:auto}}
     table{{width:100%;border-collapse:collapse}}
     th{{padding:.45rem 1rem;background:#f8f9fb;border-bottom:1px solid #eef0f3;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8894a4;text-align:left;white-space:nowrap}}
@@ -1031,6 +1114,49 @@ document.querySelectorAll('[data-utc]').forEach(function(el){{
   var d=new Date(el.getAttribute('data-utc'));
   if(!isNaN(d.getTime()))el.textContent=d.toLocaleString(undefined,{{dateStyle:'short',timeStyle:'short'}});
 }});
+function togglePanel(id){{
+  var p=document.getElementById(id);
+  var c=p.classList.toggle('collapsed');
+  try{{localStorage.setItem('ccflux_'+id,c?'1':'0');}}catch(e){{}}
+}}
+document.querySelectorAll('.panel[id]').forEach(function(p){{
+  try{{if(localStorage.getItem('ccflux_'+p.id)==='1')p.classList.add('collapsed');}}catch(e){{}}
+}});
+var arTimer=null,arLeft=0;
+function arSecs(){{return Math.max(5,parseInt(document.getElementById('ar-inp').value,10)||60);}}
+function arCdText(s){{return s>0?'next in '+s+'s':'';}}
+function toggleAutoRefresh(){{
+  var btn=document.getElementById('ar-btn');if(!btn)return;
+  var on=!btn.classList.contains('ar-on');
+  btn.classList.toggle('ar-on',on);
+  try{{localStorage.setItem('ccflux_ar',on?'1':'0');}}catch(e){{}}
+  on?arStart():arStop();
+}}
+function arStart(){{
+  arStop();arLeft=arSecs();
+  document.getElementById('ar-cd').textContent=arCdText(arLeft);
+  arTimer=setInterval(function(){{
+    arLeft--;
+    document.getElementById('ar-cd').textContent=arCdText(arLeft);
+    if(arLeft<=0){{clearInterval(arTimer);location.reload();}}
+  }},1000);
+}}
+function arStop(){{
+  clearInterval(arTimer);arTimer=null;
+  var cd=document.getElementById('ar-cd');if(cd)cd.textContent='';
+}}
+function onIntervalChange(){{
+  try{{localStorage.setItem('ccflux_ar_iv',document.getElementById('ar-inp').value);}}catch(e){{}}
+  if(document.getElementById('ar-btn').classList.contains('ar-on'))arStart();
+}}
+(function(){{
+  var btn=document.getElementById('ar-btn');if(!btn)return;
+  try{{
+    var iv=localStorage.getItem('ccflux_ar_iv');
+    if(iv){{document.getElementById('ar-inp').value=iv;}}
+    if(localStorage.getItem('ccflux_ar')==='1'){{btn.classList.add('ar-on');arStart();}}
+  }}catch(e){{}}
+}})();
 </script>
 </body>
 </html>"#
