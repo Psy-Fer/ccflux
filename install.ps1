@@ -232,19 +232,22 @@ function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
     # Marketplace catalog
     New-Item -ItemType Directory -Path (Join-Path $MktDir '.claude-plugin') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $MktDir 'plugins\ccflux')  -Force | Out-Null
+    $pe = [ordered]@{
+        name        = 'ccflux'
+        description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
+        author      = @{name='Psy-Fer'}
+        category    = 'monitoring'
+        homepage    = 'https://github.com/psy-fer/ccflux'
+    }
+    if (-not $Offline) {
+        $pe['source'] = [ordered]@{source='git-subdir';url='https://github.com/psy-fer/ccflux.git';path='plugin';ref='v0.1.0'}
+    }
     $catalog = [ordered]@{
         '$schema'   = 'https://anthropic.com/claude-code/marketplace.schema.json'
         name        = 'ccflux'
         description = 'ccflux — per-turn token usage telemetry for Claude Code'
         owner       = [ordered]@{name='Psy-Fer';email='j.ferguson@garvan.org.au'}
-        plugins     = @([ordered]@{
-            name        = 'ccflux'
-            description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
-            author      = @{name='Psy-Fer'}
-            category    = 'monitoring'
-            source      = [ordered]@{source='git-subdir';url='https://github.com/psy-fer/ccflux.git';path='plugin';ref='v0.1.0'}
-            homepage    = 'https://github.com/psy-fer/ccflux'
-        })
+        plugins     = @($pe)
     }
     $catalog | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $MktDir '.claude-plugin\marketplace.json') -Encoding UTF8
     Write-Host "  updated  plugins\marketplaces\ccflux\  (ccflux marketplace)"
@@ -252,9 +255,11 @@ function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
     # known_marketplaces.json
     if (Test-Path $KnownJson) { $km = Get-Content $KnownJson -Raw | ConvertFrom-Json }
     else { $km = [PSCustomObject]@{} }
-    $km | Add-Member -NotePropertyName 'ccflux' -NotePropertyValue (
-        [PSCustomObject]@{source=[PSCustomObject]@{source='github';repo='psy-fer/ccflux'};installLocation=$MktDir;lastUpdated=$Now}
-    ) -Force
+    $kmEntry = [PSCustomObject]@{installLocation=$MktDir;lastUpdated=$Now}
+    if (-not $Offline) {
+        $kmEntry | Add-Member -NotePropertyName 'source' -NotePropertyValue ([PSCustomObject]@{source='github';repo='psy-fer/ccflux'}) -Force
+    }
+    $km | Add-Member -NotePropertyName 'ccflux' -NotePropertyValue $kmEntry -Force
     $km | ConvertTo-Json -Depth 10 | Set-Content $KnownJson -Encoding UTF8
     Write-Host "  updated  plugins\known_marketplaces.json  (ccflux marketplace)"
 
