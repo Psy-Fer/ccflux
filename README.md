@@ -41,7 +41,15 @@ Native Windows PowerShell:
 # or with -UseStandardHooks if CC runs via Git Bash rather than native PS
 ```
 
-Both scripts find all Claude Code data directories on the machine (including aliased ones), let you pick the install target, and copy all plugin files. After installing, set the receiver endpoint and token in Claude Code plugin settings.
+Both scripts find all Claude Code data directories on the machine (including aliased ones), let you pick the install target, copy all plugin files, and register the plugin in CC's plugin registry.
+
+To uninstall:
+```bash
+bash uninstall.sh
+```
+```powershell
+.\uninstall.ps1
+```
 
 See [User setup](https://psy-fer.github.io/ccflux/user-setup.html) for full instructions.
 

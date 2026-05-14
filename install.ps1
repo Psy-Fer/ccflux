@@ -213,6 +213,50 @@ if ($BinCount -gt 0) {
     Write-Yellow "  created bin\  (empty — add ccflux-windows-x86_64.exe before using)"
 }
 
+# ── Register plugin in CC's plugin registry ───────────────────────────────────
+
+function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
+    $InstalledJson = Join-Path $InstallDir "plugins\installed_plugins.json"
+    $SettingsJson  = Join-Path $InstallDir "settings.json"
+    $Now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+
+    # installed_plugins.json
+    if (Test-Path $InstalledJson) {
+        $ipData = Get-Content $InstalledJson -Raw | ConvertFrom-Json
+    } else {
+        $ipData = [PSCustomObject]@{ version = 2; plugins = [PSCustomObject]@{} }
+    }
+    if ($null -eq $ipData.PSObject.Properties['plugins']) {
+        $ipData | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
+    }
+    $entry = @([PSCustomObject]@{
+        scope       = 'user'
+        installPath = $PluginDest
+        version     = '0.1.0'
+        installedAt = $Now
+        lastUpdated = $Now
+    })
+    $ipData.plugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $entry -Force
+    $ipData | ConvertTo-Json -Depth 10 | Set-Content $InstalledJson -Encoding UTF8
+    Write-Host "  updated  plugins\installed_plugins.json  (ccflux@local)"
+
+    # settings.json
+    if (Test-Path $SettingsJson) {
+        $settings = Get-Content $SettingsJson -Raw | ConvertFrom-Json
+    } else {
+        $settings = [PSCustomObject]@{}
+    }
+    if ($null -eq $settings.PSObject.Properties['enabledPlugins']) {
+        $settings | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
+    }
+    $settings.enabledPlugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $true -Force
+    $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsJson -Encoding UTF8
+    Write-Host "  updated  settings.json  (enabledPlugins: ccflux@local)"
+}
+
+Write-Host ""
+Register-Plugin $installDir $PluginDest
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 Write-Host ""

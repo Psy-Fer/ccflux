@@ -63,8 +63,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `session_end.sh` uses `nohup`/`disown` to survive the CC hook timeout
 
 **Installer**
-- `install.sh` — interactive bash installer for Linux / macOS / WSL / Git Bash; auto-discovers all Claude Code data directories (default `~/.claude`, aliased `~/.claude-*/`, and any non-standard path containing `.claude.json` up to 3 levels deep); prompts to pick the install target; shows which locations already have the plugin installed; on Windows (Git Bash / MSYS / Cygwin) prompts whether to use standard or PowerShell hooks variant; copies plugin files and sets executable bits; warns gracefully if `plugin/bin/` is empty
-- `install.ps1` — equivalent installer for native Windows PowerShell; scans `%USERPROFILE%\.claude*` and `.claude.json` files up to 2 levels deep; defaults to `hooks-windows.json`; accepts `-UseStandardHooks` switch for Git Bash / WSL mode
+- `install.sh` — interactive bash installer for Linux / macOS / WSL / Git Bash; auto-discovers all Claude Code data directories (default `~/.claude`, aliased `~/.claude-*/`, and any non-standard path containing `.claude.json` up to 3 levels deep); prompts to pick the install target; shows which locations already have the plugin installed; on Windows (Git Bash / MSYS / Cygwin) prompts whether to use standard or PowerShell hooks variant; copies plugin files and sets executable bits; warns gracefully if `plugin/bin/` is empty; registers the plugin in CC's `installed_plugins.json` and `settings.json` so it is immediately active on restart (requires Python 3, graceful warning if absent)
+- `install.ps1` — equivalent installer for native Windows PowerShell; scans `%USERPROFILE%\.claude*` and `.claude.json` files up to 2 levels deep; defaults to `hooks-windows.json`; accepts `-UseStandardHooks` switch for Git Bash / WSL mode; registers plugin in `installed_plugins.json` and `settings.json` via native PowerShell JSON handling
+- `uninstall.sh` — interactive uninstaller for Linux / macOS / WSL / Git Bash; finds all locations where ccflux is installed, prompts for removal target, deletes plugin directory, deregisters from `installed_plugins.json` and `settings.json`; optionally removes ccflux data directory (signing key, token cache, pending queue)
+- `uninstall.ps1` — equivalent uninstaller for native Windows PowerShell
 
 **CI**
 - `ci.yml`: fmt check, clippy (`-D warnings`), and `cargo test` for both crates on every push and PR

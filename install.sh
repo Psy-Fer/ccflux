@@ -240,6 +240,86 @@ else
     echo "  created bin/  $(yellow "(empty — add binaries before using)")"
 fi
 
+# ── Register plugin in CC's plugin registry ───────────────────────────────────
+
+register_plugin() {
+    local install_dir="$1"
+    local plugin_dest="$2"
+    local plugins_dir="${install_dir}/plugins"
+    local installed_json="${plugins_dir}/installed_plugins.json"
+    local settings_json="${install_dir}/settings.json"
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%S.000Z 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+
+    local python_bin=""
+    for p in python3 python; do
+        command -v "$p" &>/dev/null && { python_bin="$p"; break; }
+    done
+
+    if [[ -z "$python_bin" ]]; then
+        echo "  $(yellow "warning:") python not found — plugin not registered in CC registry."
+        echo "           Add $(dim "\"ccflux@local\": true") to settings.json enabledPlugins manually."
+        return
+    fi
+
+    # Update installed_plugins.json
+    CCFLUX_INSTALLED_JSON="$installed_json" \
+    CCFLUX_PLUGIN_DEST="$plugin_dest" \
+    CCFLUX_TIMESTAMP="$now" \
+    "$python_bin" - <<'PYEOF'
+import json, os, sys
+path         = os.environ['CCFLUX_INSTALLED_JSON']
+install_path = os.environ['CCFLUX_PLUGIN_DEST']
+ts           = os.environ['CCFLUX_TIMESTAMP']
+
+if os.path.isfile(path):
+    with open(path) as f:
+        data = json.load(f)
+else:
+    data = {"version": 2, "plugins": {}}
+
+data.setdefault("version", 2)
+data.setdefault("plugins", {})
+data["plugins"]["ccflux@local"] = [{
+    "scope":       "user",
+    "installPath": install_path,
+    "version":     "0.1.0",
+    "installedAt": ts,
+    "lastUpdated": ts,
+}]
+
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PYEOF
+    echo "  updated  plugins/installed_plugins.json  (ccflux@local)"
+
+    # Update settings.json enabledPlugins
+    CCFLUX_SETTINGS_JSON="$settings_json" \
+    "$python_bin" - <<'PYEOF'
+import json, os
+
+path = os.environ['CCFLUX_SETTINGS_JSON']
+
+if os.path.isfile(path):
+    with open(path) as f:
+        data = json.load(f)
+else:
+    data = {}
+
+data.setdefault("enabledPlugins", {})
+data["enabledPlugins"]["ccflux@local"] = True
+
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+PYEOF
+    echo "  updated  settings.json  (enabledPlugins: ccflux@local)"
+}
+
+echo ""
+register_plugin "$INSTALL_DIR" "$PLUGIN_DEST"
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
