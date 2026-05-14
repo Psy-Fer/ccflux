@@ -23,10 +23,27 @@ A Claude Code plugin that collects opt-in, per-turn token usage telemetry and sh
 
 ## Quick start
 
+**IT / server setup**
 1. Deploy `receiver/` behind a TLS proxy — see [Server & IT setup](https://psy-fer.github.io/ccflux/server-setup.html)
 2. Insert a refresh token per user into the `refresh_tokens` table
-3. Give each user the receiver URL and their token — see [User setup](https://psy-fer.github.io/ccflux/user-setup.html)
-4. Query usage via the admin dashboard at `/admin/` or directly in SQLite
+3. Distribute the receiver URL and each user's token
+
+**User install**
+
+Linux / macOS / WSL / Git Bash:
+```bash
+bash install.sh
+```
+
+Native Windows PowerShell:
+```powershell
+.\install.ps1
+# or with -UseStandardHooks if CC runs via Git Bash rather than native PS
+```
+
+Both scripts find all Claude Code data directories on the machine (including aliased ones), let you pick the install target, and copy all plugin files. After installing, set the receiver endpoint and token in Claude Code plugin settings.
+
+See [User setup](https://psy-fer.github.io/ccflux/user-setup.html) for full instructions.
 
 ---
 

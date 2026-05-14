@@ -62,6 +62,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `hooks-windows.json` variant ships alongside `hooks.json` for native PowerShell installs; uses `.ps1` wrappers via `powershell -ExecutionPolicy Bypass -File`
 - `session_end.sh` uses `nohup`/`disown` to survive the CC hook timeout
 
+**Installer**
+- `install.sh` — interactive bash installer for Linux / macOS / WSL / Git Bash; auto-discovers all Claude Code data directories (default `~/.claude`, aliased `~/.claude-*/`, and any non-standard path containing `.claude.json` up to 3 levels deep); prompts to pick the install target; shows which locations already have the plugin installed; on Windows (Git Bash / MSYS / Cygwin) prompts whether to use standard or PowerShell hooks variant; copies plugin files and sets executable bits; warns gracefully if `plugin/bin/` is empty
+- `install.ps1` — equivalent installer for native Windows PowerShell; scans `%USERPROFILE%\.claude*` and `.claude.json` files up to 2 levels deep; defaults to `hooks-windows.json`; accepts `-UseStandardHooks` switch for Git Bash / WSL mode
+
 **CI**
 - `ci.yml`: fmt check, clippy (`-D warnings`), and `cargo test` for both crates on every push and PR
 - `release.yml`: cross-platform release builds for all five plugin targets and both Linux receiver targets; creates a GitHub Release with all binaries attached
