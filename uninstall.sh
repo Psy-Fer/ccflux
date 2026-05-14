@@ -26,8 +26,6 @@ green()  { printf "${_green}%s${_reset}"  "$*"; }
 yellow() { printf "${_yellow}%s${_reset}" "$*"; }
 dim()    { printf "${_dim}%s${_reset}"    "$*"; }
 
-die() { echo "$(printf "${_red}error:${_reset}") $*" >&2; exit 1; }
-
 # ── Find installed locations ──────────────────────────────────────────────────
 
 looks_like_claude_dir() {
@@ -37,84 +35,161 @@ looks_like_claude_dir() {
 }
 
 find_installed_dirs() {
-    local dirs=()
-    local seen=()
+    local raw="" dir json_file seen=""
 
-    already_seen() {
-        local d="$1" s
-        for s in "${seen[@]:-}"; do [[ "$s" == "$d" ]] && return 0; done
-        return 1
-    }
-
-    check_dir() {
-        local dir="${1%/}"
-        [[ -d "$dir" ]] || return 0
-        already_seen "$dir" && return 0
-        seen+=("$dir")
-        looks_like_claude_dir "$dir" || return 0
-        [[ -d "${dir}/plugins/${PLUGIN_NAME}" ]] && dirs+=("$dir")
-    }
-
-    check_dir "${HOME}/.claude"
-    for dir in "${HOME}"/.claude-*/; do check_dir "$dir"; done
+    # Collect raw candidates
+    raw="${HOME}/.claude"$'\n'
+    for dir in "${HOME}"/.claude-*/; do
+        [[ -d "${dir%/}" ]] && raw="${raw}${dir%/}"$'\n'
+    done
     while IFS= read -r json_file; do
-        check_dir "$(dirname "$json_file")"
+        raw="${raw}$(dirname "$json_file")"$'\n'
     done < <(find "${HOME}" -maxdepth 3 -name ".claude.json" 2>/dev/null | sort)
 
-    printf '%s\n' "${dirs[@]:-}"
+    # Deduplicate, filter to dirs where ccflux is actually installed
+    while IFS= read -r dir; do
+        [[ -z "$dir" ]] && continue
+        case "|$seen|" in *"|${dir}|"*) continue ;; esac
+        seen="${seen}${dir}|"
+        [[ -d "$dir" ]] || continue
+        looks_like_claude_dir "$dir" || continue
+        [[ -d "${dir}/plugins/${PLUGIN_NAME}" ]] || continue
+        printf '%s\n' "$dir"
+    done <<< "$raw"
 }
 
-# ── Deregister from CC plugin registry ───────────────────────────────────────
+# ── JSON tool helpers ─────────────────────────────────────────────────────────
 
-deregister_plugin() {
-    local install_dir="$1"
-    local installed_json="${install_dir}/plugins/installed_plugins.json"
-    local settings_json="${install_dir}/settings.json"
+_win_path() {
+    if command -v cygpath &>/dev/null; then cygpath -w "$1"; else printf '%s' "$1"; fi
+}
 
-    local python_bin=""
-    for p in python3 python; do
-        command -v "$p" &>/dev/null && "$p" -c "import sys" 2>/dev/null && { python_bin="$p"; break; }
-    done
-
-    if [[ -z "$python_bin" ]]; then
-        echo "  $(yellow "warning:") python not found — registry not updated."
-        echo "           Remove $(dim "\"ccflux@local\"") from installed_plugins.json and settings.json manually."
-        return
-    fi
+_dereg_python() {
+    local pybin="$1" installed_json="$2" settings_json="$3"
 
     if [[ -f "$installed_json" ]]; then
         CCFLUX_INSTALLED_JSON="$installed_json" \
-        "$python_bin" - <<'PYEOF'
+        "$pybin" - <<'PYEOF'
 import json, os
-
 path = os.environ['CCFLUX_INSTALLED_JSON']
-with open(path) as f:
-    data = json.load(f)
-removed = data.get("plugins", {}).pop("ccflux@local", None)
-if removed is not None:
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+with open(path) as f: d = json.load(f)
+if d.get("plugins", {}).pop("ccflux@local", None) is not None:
+    with open(path, "w") as f: json.dump(d, f, indent=2); f.write("\n")
     print("  updated  plugins/installed_plugins.json  (removed ccflux@local)")
 PYEOF
     fi
 
     if [[ -f "$settings_json" ]]; then
         CCFLUX_SETTINGS_JSON="$settings_json" \
-        "$python_bin" - <<'PYEOF'
+        "$pybin" - <<'PYEOF'
 import json, os
-
 path = os.environ['CCFLUX_SETTINGS_JSON']
-with open(path) as f:
-    data = json.load(f)
-removed = data.get("enabledPlugins", {}).pop("ccflux@local", None)
-if removed is not None:
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+with open(path) as f: d = json.load(f)
+if d.get("enabledPlugins", {}).pop("ccflux@local", None) is not None:
+    with open(path, "w") as f: json.dump(d, f, indent=2); f.write("\n")
     print("  updated  settings.json  (removed ccflux@local)")
 PYEOF
     fi
+}
+
+_dereg_node() {
+    local nodebin="$1" installed_json="$2" settings_json="$3"
+
+    if [[ -f "$installed_json" ]]; then
+        CCFLUX_INSTALLED_JSON="$installed_json" \
+        "$nodebin" -e "
+const fs=require('fs'),p=process.env.CCFLUX_INSTALLED_JSON;
+try{
+  let d=JSON.parse(fs.readFileSync(p,'utf8'));
+  if(d.plugins&&'ccflux@local'in d.plugins){
+    delete d.plugins['ccflux@local'];
+    fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');
+    process.stdout.write('  updated  plugins/installed_plugins.json  (removed ccflux@local)\n');
+  }
+}catch(_){}"
+    fi
+
+    if [[ -f "$settings_json" ]]; then
+        CCFLUX_SETTINGS_JSON="$settings_json" \
+        "$nodebin" -e "
+const fs=require('fs'),p=process.env.CCFLUX_SETTINGS_JSON;
+try{
+  let d=JSON.parse(fs.readFileSync(p,'utf8'));
+  if(d.enabledPlugins&&'ccflux@local'in d.enabledPlugins){
+    delete d.enabledPlugins['ccflux@local'];
+    fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');
+    process.stdout.write('  updated  settings.json  (removed ccflux@local)\n');
+  }
+}catch(_){}"
+    fi
+}
+
+_dereg_powershell() {
+    local psbin="$1" installed_json="$2" settings_json="$3"
+    local tmp="/tmp/ccflux_uninstall_$$.ps1"
+
+    cat > "$tmp" << 'PSEOF'
+$ErrorActionPreference = 'Stop'
+$ipath = $env:CCFLUX_INSTALLED_JSON
+$spath = $env:CCFLUX_SETTINGS_JSON
+
+if ($ipath -and (Test-Path $ipath)) {
+    $d = Get-Content $ipath -Raw | ConvertFrom-Json
+    if ($d.plugins.PSObject.Properties['ccflux@local']) {
+        $d.plugins.PSObject.Properties.Remove('ccflux@local')
+        $d | ConvertTo-Json -Depth 10 | Set-Content $ipath -Encoding UTF8
+        Write-Host "  updated  plugins/installed_plugins.json  (removed ccflux@local)"
+    }
+}
+
+if ($spath -and (Test-Path $spath)) {
+    $s = Get-Content $spath -Raw | ConvertFrom-Json
+    if ($s.PSObject.Properties['enabledPlugins'] -and $s.enabledPlugins.PSObject.Properties['ccflux@local']) {
+        $s.enabledPlugins.PSObject.Properties.Remove('ccflux@local')
+        $s | ConvertTo-Json -Depth 10 | Set-Content $spath -Encoding UTF8
+        Write-Host "  updated  settings.json  (removed ccflux@local)"
+    }
+}
+PSEOF
+
+    CCFLUX_INSTALLED_JSON="$(_win_path "$installed_json")" \
+    CCFLUX_SETTINGS_JSON="$(_win_path "$settings_json")" \
+    "$psbin" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(_win_path "$tmp")"
+    rm -f "$tmp"
+}
+
+deregister_plugin() {
+    local install_dir="$1"
+    local installed_json="${install_dir}/plugins/installed_plugins.json"
+    local settings_json="${install_dir}/settings.json"
+
+    local tool="" bin=""
+
+    for p in python3 python; do
+        command -v "$p" &>/dev/null && "$p" -c "import sys" 2>/dev/null \
+            && tool="python" bin="$p" && break
+    done
+
+    if [[ -z "$tool" ]]; then
+        for p in node nodejs; do
+            command -v "$p" &>/dev/null && "$p" -e "process.exit(0)" 2>/dev/null \
+                && tool="node" bin="$p" && break
+        done
+    fi
+
+    if [[ -z "$tool" ]]; then
+        for p in powershell.exe pwsh; do
+            command -v "$p" &>/dev/null && tool="powershell" bin="$p" && break
+        done
+    fi
+
+    if [[ -z "$tool" ]]; then
+        echo "  $(yellow "warning:") No JSON tool found — registry not updated."
+        echo "           Manually remove $(dim '"ccflux@local"') from installed_plugins.json and settings.json."
+        return
+    fi
+
+    "_dereg_${tool}" "$bin" "$installed_json" "$settings_json"
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -147,7 +222,7 @@ if (( ${#candidates[@]} > 1 )); then
 fi
 echo ""
 
-# Prompt for choice
+to_remove=()
 while true; do
     printf "Choose installation to remove [1]: "
     read -r choice
@@ -169,7 +244,6 @@ while true; do
     fi
 done
 
-# Ask about data directory
 echo ""
 printf "Also remove ccflux data (signing key, token cache, pending queue)? [y/N] "
 read -r remove_data

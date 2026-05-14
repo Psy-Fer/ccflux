@@ -15,7 +15,6 @@ PLUGIN_SRC="${SCRIPT_DIR}/plugin"
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
 
-# Disable colours when not connected to a terminal
 if [ -t 1 ]; then
     _bold='\033[1m'; _reset='\033[0m'
     _green='\033[32m'; _yellow='\033[33m'; _red='\033[31m'; _dim='\033[2m'
@@ -40,52 +39,168 @@ is_windows_bash() {
 
 # ── Find candidate CC data directories ───────────────────────────────────────
 
-# A directory is a CC data dir if it contains any of:
-#   .claude.json   (OAuth account config)
-#   projects/      (per-project transcript storage)
-#   plugins/       (installed plugins)
 looks_like_claude_dir() {
     local dir="$1"
-    # The home directory itself is never a CC data dir
     [[ "$dir" == "$HOME" ]] && return 1
     [[ -f "${dir}/.claude.json" || -d "${dir}/projects" || -d "${dir}/plugins" ]]
 }
 
 find_claude_dirs() {
-    local dirs=()
-    local seen=()
+    local raw="" dir json_file seen=""
 
-    already_seen() {
-        local d="$1" s
-        for s in "${seen[@]:-}"; do [[ "$s" == "$d" ]] && return 0; done
-        return 1
-    }
-
-    add_if_claude() {
-        local dir="${1%/}"
-        [[ -d "$dir" ]] || return 0
-        already_seen "$dir" && return 0
-        if looks_like_claude_dir "$dir"; then
-            seen+=("$dir")
-            dirs+=("$dir")
-        fi
-    }
-
-    # Standard default location
-    add_if_claude "${HOME}/.claude"
-
-    # Any ~/.claude-* variants (common aliased config dirs)
+    # Collect raw candidates
+    raw="${HOME}/.claude"$'\n'
     for dir in "${HOME}"/.claude-*/; do
-        add_if_claude "$dir"
+        [[ -d "${dir%/}" ]] && raw="${raw}${dir%/}"$'\n'
     done
-
-    # Broader scan: find any .claude.json up to 3 levels deep in HOME.
-    # Covers CLAUDE_CONFIG_DIR pointing to non-standard paths.
     while IFS= read -r json_file; do
-        add_if_claude "$(dirname "$json_file")"
+        raw="${raw}$(dirname "$json_file")"$'\n'
     done < <(find "${HOME}" -maxdepth 3 -name ".claude.json" 2>/dev/null | sort)
 
-    printf '%s\n' "${dirs[@]:-}"
+    # Deduplicate and filter to valid CC data dirs
+    while IFS= read -r dir; do
+        [[ -z "$dir" ]] && continue
+        case "|$seen|" in *"|${dir}|"*) continue ;; esac
+        seen="${seen}${dir}|"
+        looks_like_claude_dir "$dir" || continue
+        printf '%s\n' "$dir"
+    done <<< "$raw"
+}
+
+# ── JSON tool helpers ─────────────────────────────────────────────────────────
+
+# Convert a Unix/MSYS path to a Windows path for PowerShell (Git Bash only)
+_win_path() {
+    if command -v cygpath &>/dev/null; then cygpath -w "$1"; else printf '%s' "$1"; fi
+}
+
+_reg_python() {
+    local pybin="$1" installed_json="$2" settings_json="$3" plugin_dest="$4" now="$5"
+
+    CCFLUX_INSTALLED_JSON="$installed_json" \
+    CCFLUX_PLUGIN_DEST="$plugin_dest" \
+    CCFLUX_TIMESTAMP="$now" \
+    "$pybin" - <<'PYEOF'
+import json, os
+path, dest, ts = os.environ['CCFLUX_INSTALLED_JSON'], os.environ['CCFLUX_PLUGIN_DEST'], os.environ['CCFLUX_TIMESTAMP']
+d = {"version": 2, "plugins": {}}
+try:
+    with open(path) as f: d = json.load(f)
+except OSError: pass
+d.setdefault("plugins", {})
+d["plugins"]["ccflux@local"] = [{"scope":"user","installPath":dest,"version":"0.1.0","installedAt":ts,"lastUpdated":ts}]
+with open(path, "w") as f: json.dump(d, f, indent=2); f.write("\n")
+PYEOF
+
+    CCFLUX_SETTINGS_JSON="$settings_json" \
+    "$pybin" - <<'PYEOF'
+import json, os
+path = os.environ['CCFLUX_SETTINGS_JSON']
+d = {}
+try:
+    with open(path) as f: d = json.load(f)
+except OSError: pass
+d.setdefault("enabledPlugins", {})
+d["enabledPlugins"]["ccflux@local"] = True
+with open(path, "w") as f: json.dump(d, f, indent=2); f.write("\n")
+PYEOF
+}
+
+_reg_node() {
+    local nodebin="$1" installed_json="$2" settings_json="$3" plugin_dest="$4" now="$5"
+
+    CCFLUX_INSTALLED_JSON="$installed_json" \
+    CCFLUX_PLUGIN_DEST="$plugin_dest" \
+    CCFLUX_TIMESTAMP="$now" \
+    "$nodebin" -e "
+const fs=require('fs'),e=process.env,p=e.CCFLUX_INSTALLED_JSON,dest=e.CCFLUX_PLUGIN_DEST,ts=e.CCFLUX_TIMESTAMP;
+let d={version:2,plugins:{}};try{d=JSON.parse(fs.readFileSync(p,'utf8'));}catch(_){}
+if(!d.plugins)d.plugins={};
+d.plugins['ccflux@local']=[{scope:'user',installPath:dest,version:'0.1.0',installedAt:ts,lastUpdated:ts}];
+fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');"
+
+    CCFLUX_SETTINGS_JSON="$settings_json" \
+    "$nodebin" -e "
+const fs=require('fs'),e=process.env,p=e.CCFLUX_SETTINGS_JSON;
+let d={};try{d=JSON.parse(fs.readFileSync(p,'utf8'));}catch(_){}
+if(!d.enabledPlugins)d.enabledPlugins={};
+d.enabledPlugins['ccflux@local']=true;
+fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');"
+}
+
+_reg_powershell() {
+    local psbin="$1" installed_json="$2" settings_json="$3" plugin_dest="$4" now="$5"
+    local tmp="/tmp/ccflux_install_$$.ps1"
+
+    cat > "$tmp" << 'PSEOF'
+$ErrorActionPreference = 'Stop'
+$ipath = $env:CCFLUX_INSTALLED_JSON
+$spath = $env:CCFLUX_SETTINGS_JSON
+$dest  = $env:CCFLUX_PLUGIN_DEST
+$ts    = $env:CCFLUX_TIMESTAMP
+
+if (Test-Path $ipath) { $d = Get-Content $ipath -Raw | ConvertFrom-Json }
+else { $d = [PSCustomObject]@{ version = 2; plugins = [PSCustomObject]@{} } }
+if (-not $d.PSObject.Properties['plugins']) {
+    $d | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
+}
+$entry = @([PSCustomObject]@{ scope='user'; installPath=$dest; version='0.1.0'; installedAt=$ts; lastUpdated=$ts })
+$d.plugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $entry -Force
+$d | ConvertTo-Json -Depth 10 | Set-Content $ipath -Encoding UTF8
+
+if (Test-Path $spath) { $s = Get-Content $spath -Raw | ConvertFrom-Json }
+else { $s = [PSCustomObject]@{} }
+if (-not $s.PSObject.Properties['enabledPlugins']) {
+    $s | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
+}
+$s.enabledPlugins | Add-Member -NotePropertyName 'ccflux@local' -NotePropertyValue $true -Force
+$s | ConvertTo-Json -Depth 10 | Set-Content $spath -Encoding UTF8
+PSEOF
+
+    CCFLUX_INSTALLED_JSON="$(_win_path "$installed_json")" \
+    CCFLUX_SETTINGS_JSON="$(_win_path "$settings_json")" \
+    CCFLUX_PLUGIN_DEST="$(_win_path "$plugin_dest")" \
+    CCFLUX_TIMESTAMP="$now" \
+    "$psbin" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(_win_path "$tmp")"
+    rm -f "$tmp"
+}
+
+register_plugin() {
+    local install_dir="$1" plugin_dest="$2"
+    local installed_json="${install_dir}/plugins/installed_plugins.json"
+    local settings_json="${install_dir}/settings.json"
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+
+    local tool="" bin=""
+
+    for p in python3 python; do
+        command -v "$p" &>/dev/null && "$p" -c "import sys" 2>/dev/null \
+            && tool="python" bin="$p" && break
+    done
+
+    if [[ -z "$tool" ]]; then
+        for p in node nodejs; do
+            command -v "$p" &>/dev/null && "$p" -e "process.exit(0)" 2>/dev/null \
+                && tool="node" bin="$p" && break
+        done
+    fi
+
+    if [[ -z "$tool" ]]; then
+        for p in powershell.exe pwsh; do
+            command -v "$p" &>/dev/null && tool="powershell" bin="$p" && break
+        done
+    fi
+
+    if [[ -z "$tool" ]]; then
+        echo "  $(yellow "warning:") No JSON tool found (python/node/powershell)."
+        echo "           Manually add $(dim '"ccflux@local": true') to ${settings_json} enabledPlugins."
+        return
+    fi
+
+    "_reg_${tool}" "$bin" "$installed_json" "$settings_json" "$plugin_dest" "$now"
+    echo "  updated  plugins/installed_plugins.json  (ccflux@local)"
+    echo "  updated  settings.json  (enabledPlugins: ccflux@local)"
 }
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
@@ -99,7 +214,6 @@ echo ""
 [[ -d "${PLUGIN_SRC}/.claude-plugin" && -d "${PLUGIN_SRC}/scripts" && -d "${PLUGIN_SRC}/hooks" ]] \
     || die "plugin/ directory is incomplete — check your checkout."
 
-# Warn (don't fail) if bin/ is empty — useful during development
 bin_count=0
 if [[ -d "${PLUGIN_SRC}/bin" ]]; then
     bin_count=$(find "${PLUGIN_SRC}/bin" -maxdepth 1 -type f | wc -l | tr -d ' ')
@@ -130,7 +244,6 @@ if (( ${#candidates[@]} == 0 )); then
     echo ""
 fi
 
-# Print found locations
 if (( ${#candidates[@]} > 0 )); then
     echo "Found Claude Code installation(s):"
     echo ""
@@ -156,9 +269,7 @@ while true; do
     choice="${choice:-1}"
 
     if [[ "$choice" == "c" || "$choice" == "C" || (( ${#candidates[@]} == 0 )) ]]; then
-        [[ "$choice" =~ ^[cC]$|^[cC]$ || (( ${#candidates[@]} == 0 )) ]] || true
         if [[ "$choice" != "c" && "$choice" != "C" && (( ${#candidates[@]} == 0 )) ]]; then
-            # The user's input IS the path when no candidates were found
             INSTALL_DIR="${choice/#\~/$HOME}"
         else
             printf "Path: "
@@ -208,17 +319,14 @@ fi
 
 echo ""
 
-# .claude-plugin/
 mkdir -p "${PLUGIN_DEST}/.claude-plugin"
 cp "${PLUGIN_SRC}/.claude-plugin/plugin.json" "${PLUGIN_DEST}/.claude-plugin/"
 echo "  copied  .claude-plugin/plugin.json"
 
-# hooks/ — install chosen variant as hooks.json
 mkdir -p "${PLUGIN_DEST}/hooks"
 cp "${HOOKS_SRC}" "${PLUGIN_DEST}/hooks/hooks.json"
 echo "  copied  hooks/hooks.json"
 
-# scripts/ — copy all, set executable bits
 mkdir -p "${PLUGIN_DEST}/scripts"
 for f in "${PLUGIN_SRC}/scripts/"*; do
     cp "$f" "${PLUGIN_DEST}/scripts/"
@@ -227,7 +335,6 @@ for f in "${PLUGIN_SRC}/scripts/"*; do
     echo "  copied  scripts/${fname}"
 done
 
-# bin/ — copy all, set executable bits
 if [[ -d "${PLUGIN_SRC}/bin" ]] && (( bin_count > 0 )); then
     mkdir -p "${PLUGIN_DEST}/bin"
     for f in "${PLUGIN_SRC}/bin/"*; do
@@ -241,81 +348,6 @@ else
 fi
 
 # ── Register plugin in CC's plugin registry ───────────────────────────────────
-
-register_plugin() {
-    local install_dir="$1"
-    local plugin_dest="$2"
-    local plugins_dir="${install_dir}/plugins"
-    local installed_json="${plugins_dir}/installed_plugins.json"
-    local settings_json="${install_dir}/settings.json"
-    local now
-    now="$(date -u +%Y-%m-%dT%H:%M:%S.000Z 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-
-    local python_bin=""
-    for p in python3 python; do
-        command -v "$p" &>/dev/null && "$p" -c "import sys" 2>/dev/null && { python_bin="$p"; break; }
-    done
-
-    if [[ -z "$python_bin" ]]; then
-        echo "  $(yellow "warning:") python not found — plugin not registered in CC registry."
-        echo "           Add $(dim "\"ccflux@local\": true") to settings.json enabledPlugins manually."
-        return
-    fi
-
-    # Update installed_plugins.json
-    CCFLUX_INSTALLED_JSON="$installed_json" \
-    CCFLUX_PLUGIN_DEST="$plugin_dest" \
-    CCFLUX_TIMESTAMP="$now" \
-    "$python_bin" - <<'PYEOF'
-import json, os, sys
-path         = os.environ['CCFLUX_INSTALLED_JSON']
-install_path = os.environ['CCFLUX_PLUGIN_DEST']
-ts           = os.environ['CCFLUX_TIMESTAMP']
-
-if os.path.isfile(path):
-    with open(path) as f:
-        data = json.load(f)
-else:
-    data = {"version": 2, "plugins": {}}
-
-data.setdefault("version", 2)
-data.setdefault("plugins", {})
-data["plugins"]["ccflux@local"] = [{
-    "scope":       "user",
-    "installPath": install_path,
-    "version":     "0.1.0",
-    "installedAt": ts,
-    "lastUpdated": ts,
-}]
-
-with open(path, "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
-PYEOF
-    echo "  updated  plugins/installed_plugins.json  (ccflux@local)"
-
-    # Update settings.json enabledPlugins
-    CCFLUX_SETTINGS_JSON="$settings_json" \
-    "$python_bin" - <<'PYEOF'
-import json, os
-
-path = os.environ['CCFLUX_SETTINGS_JSON']
-
-if os.path.isfile(path):
-    with open(path) as f:
-        data = json.load(f)
-else:
-    data = {}
-
-data.setdefault("enabledPlugins", {})
-data["enabledPlugins"]["ccflux@local"] = True
-
-with open(path, "w") as f:
-    json.dump(data, f, indent=2)
-    f.write("\n")
-PYEOF
-    echo "  updated  settings.json  (enabledPlugins: ccflux@local)"
-}
 
 echo ""
 register_plugin "$INSTALL_DIR" "$PLUGIN_DEST"
