@@ -3,7 +3,7 @@
 All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.0] - 2026-05-12
+## [0.1.0] - 2026-05-14
 
 ### Added
 
@@ -35,18 +35,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 **Admin dashboard** (served at `/admin/`, enabled by `ADMIN_TOKEN` env var)
 - Login form with `HttpOnly; SameSite=Strict` cookie; optional `; Secure` flag via `COOKIE_SECURE=1`
+- `GET /admin/logout` — clears session cookie and redirects to login
 - Org summary cards: users, sessions, turns, input tokens, output tokens, cache hit rate
 - SVG line chart of daily billed tokens over the last 30 days (server-rendered, no JS dependencies)
 - SVG horizontal bar charts: billed tokens by user and by model
-- Usage-by-user table (input, output, cache reads, cache writes, sessions, turns, last active)
+- Usage-by-user table (input, output, cache reads, cache writes, sessions, turns, last active) with inferred tier column
 - Model breakdown table with cache hit percentage
 - Device key management table with one-click revoke
 - Recent events table (last 50 turns)
+- 5-hour billing window charts and table (bar chart of peak billed tokens per user, detailed window table for the last 7 days)
 - All timestamps localised to the browser's timezone via inline JS
+- Collapsible panels — click any panel header to collapse/expand; state persisted in `localStorage`
+- Auto-refresh — configurable interval via number input (5 s – 3600 s), live countdown ("next in Xs"), on/off state and interval persisted in `localStorage`
+
+**Tier inference**
+- Per-user billing tier classification (`Unknown` / `Tier 1` / `Tier 2` / …) inferred from 5-hour window history
+- Algorithm: per user, takes the 75th-percentile of completed window peaks (drops inactivity-reset outliers); gap-based clustering (1.8× ratio) assigns tier boundaries across the org
+- Requires ≥ 3 completed windows to classify; confidence badge (low / medium) shown in the user table
+- `tier_hints` table persists classifications across restarts; rows with `method = 'limit_hit'` are never overwritten by inference (reserved for a future exact signal from confirmed 429 events)
+- Recomputed in background every `TIER_INFERENCE_INTERVAL_SECS` seconds (default 600); cache seeded from DB on startup so dashboard is populated immediately after restart
+- Lookback window configurable via `TIER_INFERENCE_DAYS` (default 90) — avoids scanning unbounded history on large deployments
 
 **Plugin wrappers**
-- Bash scripts for Linux/macOS; PowerShell scripts for native Windows
-- Platform/arch detection selects the correct pre-built binary from `plugin/bin/`
+- Bash scripts for Linux/macOS/WSL/Git Bash; PowerShell scripts for native Windows
+- Platform/arch detection in `.sh` scripts covers Linux, macOS, WSL, and Git Bash (MSYS/MINGW/Cygwin → Windows binary)
+- `hooks-windows.json` variant ships alongside `hooks.json` for native PowerShell installs; uses `.ps1` wrappers via `powershell -ExecutionPolicy Bypass -File`
 - `session_end.sh` uses `nohup`/`disown` to survive the CC hook timeout
 
 **CI**

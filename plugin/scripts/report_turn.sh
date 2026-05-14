@@ -12,6 +12,7 @@ case "${OS}-${ARCH}" in
   linux-aarch64)  BIN="${CLAUDE_PLUGIN_ROOT}/bin/ccflux-linux-aarch64" ;;
   darwin-x86_64)  BIN="${CLAUDE_PLUGIN_ROOT}/bin/ccflux-macos-x86_64" ;;
   darwin-arm64)   BIN="${CLAUDE_PLUGIN_ROOT}/bin/ccflux-macos-aarch64" ;;
+  msys*|mingw*|cygwin*) BIN="${CLAUDE_PLUGIN_ROOT}/bin/ccflux-windows-x86_64.exe" ;;
   *) exit 0 ;;
 esac
 

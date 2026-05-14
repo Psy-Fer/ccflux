@@ -61,13 +61,20 @@ Releases are built automatically by `.github/workflows/release.yml` on tag push.
 
 ## Platform support
 
-| Platform | Binary |
-|----------|--------|
-| Linux x86_64 | `ccflux-linux-x86_64` |
-| Linux aarch64 | `ccflux-linux-aarch64` |
-| macOS x86_64 | `ccflux-macos-x86_64` |
-| macOS Apple Silicon | `ccflux-macos-aarch64` |
-| Windows x86_64 | `ccflux-windows-x86_64.exe` |
+| Platform | Binary | Hook config |
+|----------|--------|-------------|
+| Linux x86_64 | `ccflux-linux-x86_64` | `hooks.json` |
+| Linux aarch64 | `ccflux-linux-aarch64` | `hooks.json` |
+| macOS x86_64 | `ccflux-macos-x86_64` | `hooks.json` |
+| macOS Apple Silicon | `ccflux-macos-aarch64` | `hooks.json` |
+| Windows via WSL | `ccflux-linux-x86_64` | `hooks.json` |
+| Windows via Git Bash | `ccflux-windows-x86_64.exe` | `hooks.json` |
+| Windows native PowerShell | `ccflux-windows-x86_64.exe` | `hooks-windows.json` |
+
+**Windows notes:**
+- **WSL** (recommended): CC runs inside WSL and presents as Linux — no special configuration needed.
+- **Git Bash**: `hooks.json` works as-is; the `.sh` scripts detect MSYS/MINGW and select the Windows binary automatically.
+- **Native PowerShell**: copy `plugin/hooks/hooks-windows.json` over `hooks.json` before installing. The `.ps1` wrappers are used instead of `.sh`.
 
 ---
 
