@@ -74,7 +74,7 @@ fn append_log(path: &Path, line: &str) {
 }
 
 pub fn log_error(data_dir: &Path, msg: &str) {
-    let timestamp = chrono::Utc::now().to_rfc3339();
+    let timestamp = chrono::Local::now().to_rfc3339();
     let line = format!("[{timestamp}] {msg}\n");
     append_log(&error_log_path(data_dir), &line);
     append_log(
@@ -84,7 +84,7 @@ pub fn log_error(data_dir: &Path, msg: &str) {
 }
 
 pub fn log_activity(data_dir: &Path, msg: &str) {
-    let timestamp = chrono::Utc::now().to_rfc3339();
+    let timestamp = chrono::Local::now().to_rfc3339();
     let line = format!("[{timestamp}] {msg}\n");
     append_log(&activity_log_path(data_dir), &line);
 }
