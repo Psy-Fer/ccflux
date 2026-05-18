@@ -172,7 +172,7 @@ fn run_report(input: &str, is_session_end: bool) {
                     &format!(
                         "report: turn {} session {}… sent ok",
                         payload.turn_index,
-                        &hook.session_id[..8]
+                        hook.session_id.get(..8).unwrap_or(&hook.session_id)
                     ),
                 );
                 advance_offset(
@@ -235,7 +235,7 @@ fn run_report(input: &str, is_session_end: bool) {
             &format!(
                 "report: turn {} session {}… queued (key not yet registered)",
                 payload.turn_index,
-                &hook.session_id[..8]
+                hook.session_id.get(..8).unwrap_or(&hook.session_id)
             ),
         );
         advance_offset(

@@ -392,7 +392,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
                     ts(&e.received_at),
                     esc(&e.user_email),
                     esc(&e.device_id),
-                    esc(&e.session_id[..8]),
+                    esc(e.session_id.get(..8).unwrap_or(&e.session_id)),
                     e.turn_index,
                     esc(&e.model),
                     fmt_num(e.input_tokens),
@@ -688,10 +688,16 @@ pub async fn handle_provision_user(
     if email.is_empty() {
         return error_page("Email is required.").into_response();
     }
+    if email.len() > 254 {
+        return error_page("Email address too long.").into_response();
+    }
     let division = form
         .get("division")
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
+    if division.len() > 128 {
+        return error_page("Division name too long.").into_response();
+    }
     let days: i64 = form
         .get("expires_days")
         .and_then(|s| s.parse().ok())

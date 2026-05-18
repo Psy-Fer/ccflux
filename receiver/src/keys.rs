@@ -16,6 +16,10 @@ pub async fn handle_register_key(
         return StatusCode::TOO_MANY_REQUESTS;
     }
 
+    if payload.public_key.len() > 64 || payload.device_id.len() > 255 {
+        return StatusCode::BAD_REQUEST;
+    }
+
     // Resolve email from the access token.
     let email = match db::email_from_access_token(&state.pool, &access_token).await {
         Ok(Some(e)) => e,

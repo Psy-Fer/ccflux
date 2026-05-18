@@ -249,6 +249,10 @@ async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: 
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
 
+    if !is_valid_payload(&payload) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
     let device_id = if let Some(h) = sig_header {
         let parts: Vec<&str> = h.splitn(3, ' ').collect();
         if parts.len() == 3 {
@@ -276,6 +280,28 @@ async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: 
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+fn is_valid_payload(p: &model::UsagePayload) -> bool {
+    if p.session_id.is_empty() || p.session_id.len() > 64 {
+        return false;
+    }
+    if p.timestamp_utc.len() > 64 {
+        return false;
+    }
+    if p.session_start_utc.as_deref().is_some_and(|s| s.len() > 64) {
+        return false;
+    }
+    if p.plugin_version.as_deref().is_some_and(|s| s.len() > 64) {
+        return false;
+    }
+    if p.models.len() > 20 {
+        return false;
+    }
+    if p.models.keys().any(|k| k.is_empty() || k.len() > 128) {
+        return false;
+    }
+    true
 }
 
 fn sig_error(code: &'static str) -> Response {
@@ -344,6 +370,7 @@ mod tests {
             refresh_token_rolling_days: 90,
             require_signatures: false,
             admin_token: None,
+            base_url: String::new(),
             cookie_secure: false,
             tier_cache: Arc::new(Mutex::new(HashMap::new())),
         };
