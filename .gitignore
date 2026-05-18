@@ -35,3 +35,6 @@ docs/book
 
 # Pen test script — keep local (contains target URL, documents attack surface)
 pentest.sh
+
+# Demo database (binary artifact — regenerate with ./generate_demo.sh)
+docs_demo.db
