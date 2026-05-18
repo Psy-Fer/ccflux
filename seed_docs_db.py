@@ -8,10 +8,10 @@ Usage:
     Default output: docs_demo.db
 """
 
-import sqlite3
-import random
 import hashlib
+import random
 import secrets
+import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -90,59 +90,59 @@ CREATE TABLE IF NOT EXISTS tier_hints (
 USERS = [
     # (email, division, tier, devices, activity_profile)
     # tier: "max20" ~390k/5h window, "max5" ~97k, "standard" ~19.5k, "light" ~5k
-    ("alex.chen@example.com",        "Engineering",    "max20",    2, "heavy"),
-    ("sarah.thompson@example.com",   "Engineering",    "max20",    2, "heavy"),
-    ("james.wilson@example.com",     "Data Science",   "max20",    1, "heavy"),
-    ("emily.rodriguez@example.com",  "Engineering",    "max5",     2, "moderate_high"),
-    ("michael.park@example.com",     "Engineering",    "max5",     1, "moderate_high"),
-    ("lisa.anderson@example.com",    "Research",       "max5",     2, "moderate_high"),
-    ("david.kim@example.com",        "Engineering",    "max5",     1, "moderate"),
-    ("rachel.nguyen@example.com",    "Research",       "max5",     2, "moderate"),
-    ("thomas.brown@example.com",     "IT",             "standard", 1, "moderate"),
-    ("jennifer.lee@example.com",     "Engineering",    "standard", 1, "moderate_low"),
-    ("chris.martin@example.com",     "Research",       "standard", 1, "moderate_low"),
-    ("amanda.white@example.com",     "Data Science",   "standard", 2, "moderate_low"),
-    ("kevin.taylor@example.com",     "Engineering",    "standard", 1, "moderate_low"),
-    ("stephanie.garcia@example.com", "Research",       "light",    1, "light"),
-    ("brian.jones@example.com",      "IT",             "light",    1, "light"),
+    ("alex.chen@example.com", "Engineering", "max20", 2, "heavy"),
+    ("sarah.thompson@example.com", "Engineering", "max20", 2, "heavy"),
+    ("james.wilson@example.com", "Data Science", "max20", 1, "heavy"),
+    ("emily.rodriguez@example.com", "Engineering", "max5", 2, "moderate_high"),
+    ("michael.park@example.com", "Engineering", "max5", 1, "moderate_high"),
+    ("lisa.anderson@example.com", "Research", "max5", 2, "moderate_high"),
+    ("david.kim@example.com", "Engineering", "max5", 1, "moderate"),
+    ("rachel.nguyen@example.com", "Research", "max5", 2, "moderate"),
+    ("thomas.brown@example.com", "IT", "standard", 1, "moderate"),
+    ("jennifer.lee@example.com", "Engineering", "standard", 1, "moderate_low"),
+    ("chris.martin@example.com", "Research", "standard", 1, "moderate_low"),
+    ("amanda.white@example.com", "Data Science", "standard", 2, "moderate_low"),
+    ("kevin.taylor@example.com", "Engineering", "standard", 1, "moderate_low"),
+    ("stephanie.garcia@example.com", "Research", "light", 1, "light"),
+    ("brian.jones@example.com", "IT", "light", 1, "light"),
 ]
 
 # Session count per day by profile (weekday, weekend)
 SESSIONS_PER_DAY = {
-    "heavy":        (4, 2),
-    "moderate_high":(3, 1),
-    "moderate":     (2, 1),
+    "heavy": (4, 2),
+    "moderate_high": (3, 1),
+    "moderate": (2, 1),
     "moderate_low": (2, 0),
-    "light":        (1, 0),
+    "light": (1, 0),
 }
 
 # Turns per session by profile
 TURNS_PER_SESSION = {
-    "heavy":         (8, 25),
+    "heavy": (8, 25),
     "moderate_high": (5, 18),
-    "moderate":      (4, 14),
-    "moderate_low":  (3, 10),
-    "light":         (2, 7),
+    "moderate": (4, 14),
+    "moderate_low": (3, 10),
+    "light": (2, 7),
 }
 
 # Model mix by tier: list of (model, weight)
 MODEL_WEIGHTS = {
     "max20": [
-        ("claude-opus-4-7",         30),
-        ("claude-sonnet-4-6",       55),
+        ("claude-opus-4-7", 30),
+        ("claude-sonnet-4-6", 55),
         ("claude-haiku-4-5-20251001", 15),
     ],
     "max5": [
-        ("claude-opus-4-7",         10),
-        ("claude-sonnet-4-6",       70),
+        ("claude-opus-4-7", 10),
+        ("claude-sonnet-4-6", 70),
         ("claude-haiku-4-5-20251001", 20),
     ],
     "standard": [
-        ("claude-sonnet-4-6",       75),
+        ("claude-sonnet-4-6", 75),
         ("claude-haiku-4-5-20251001", 25),
     ],
     "light": [
-        ("claude-sonnet-4-6",       60),
+        ("claude-sonnet-4-6", 60),
         ("claude-haiku-4-5-20251001", 40),
     ],
 }
@@ -151,19 +151,19 @@ MODEL_WEIGHTS = {
 # cache_read grows after the first few turns in a session
 TOKEN_RANGES = {
     "claude-opus-4-7": {
-        "input":       (4000, 18000),
-        "output":      (400,  2200),
+        "input": (4000, 18000),
+        "output": (400, 2200),
         "cache_write": (2000, 8000),
     },
     "claude-sonnet-4-6": {
-        "input":       (2000, 12000),
-        "output":      (150,  1500),
+        "input": (2000, 12000),
+        "output": (150, 1500),
         "cache_write": (1000, 6000),
     },
     "claude-haiku-4-5-20251001": {
-        "input":       (800,  5000),
-        "output":      (80,   600),
-        "cache_write": (400,  2000),
+        "input": (800, 5000),
+        "output": (80, 600),
+        "cache_write": (400, 2000),
     },
 }
 
@@ -173,28 +173,34 @@ TOKEN_RANGES = {
 
 rng = random.Random(42)  # deterministic
 
+
 def rand_token(n=32):
     return secrets.token_hex(n)
+
 
 def fake_pubkey(email, device_idx):
     h = hashlib.sha256(f"{email}:{device_idx}".encode()).digest()
     return h.hex()[:64]
 
+
 def fmt(dt):
     return dt.strftime("%Y-%m-%d %H:%M:%S")
+
 
 def weighted_choice(pairs):
     items, weights = zip(*pairs)
     return rng.choices(items, weights=weights, k=1)[0]
 
+
 def session_start_hour(profile):
     """Return a realistic start-of-session hour (UTC offset for Sydney ~+10)."""
     if profile in ("heavy", "moderate_high"):
-        return rng.choices(range(22, 30), weights=[2,3,4,5,5,4,3,2], k=1)[0] % 24
+        return rng.choices(range(22, 30), weights=[2, 3, 4, 5, 5, 4, 3, 2], k=1)[0] % 24
     elif profile in ("moderate", "moderate_low"):
-        return rng.choices(range(22, 29), weights=[2,3,5,5,4,3,2], k=1)[0] % 24
+        return rng.choices(range(22, 29), weights=[2, 3, 5, 5, 4, 3, 2], k=1)[0] % 24
     else:
-        return rng.choices(range(23, 28), weights=[3,5,5,3,2], k=1)[0] % 24
+        return rng.choices(range(23, 28), weights=[3, 5, 5, 3, 2], k=1)[0] % 24
+
 
 # ---------------------------------------------------------------------------
 # Main generation
@@ -215,14 +221,20 @@ for email, division, tier, num_devices, profile in USERS:
     expires = NOW + timedelta(days=365)
     cur.execute(
         "INSERT INTO refresh_tokens(token,email,division,expires_at,revoked,created_at) VALUES(?,?,?,?,0,?)",
-        (refresh_tok, email, division, fmt(expires), fmt(START - timedelta(days=5)))
+        (refresh_tok, email, division, fmt(expires), fmt(START - timedelta(days=5))),
     )
 
     # --- access token (current, valid) ---
     access_tok = rand_token()
     cur.execute(
         "INSERT INTO access_tokens(token,refresh_token,email,expires_at,created_at) VALUES(?,?,?,?,?)",
-        (access_tok, refresh_tok, email, fmt(NOW + timedelta(hours=4)), fmt(NOW - timedelta(hours=4)))
+        (
+            access_tok,
+            refresh_tok,
+            email,
+            fmt(NOW + timedelta(hours=4)),
+            fmt(NOW - timedelta(hours=4)),
+        ),
     )
 
     # --- device keys ---
@@ -237,7 +249,13 @@ for email, division, tier, num_devices, profile in USERS:
         devices.append((pk, hostnames[i]))
         cur.execute(
             "INSERT INTO device_keys(public_key,email,device_id,registered_at,last_seen_at,revoked) VALUES(?,?,?,?,?,0)",
-            (pk, email, hostnames[i], fmt(reg_at), fmt(NOW - timedelta(hours=rng.randint(0, 48))))
+            (
+                pk,
+                email,
+                hostnames[i],
+                fmt(reg_at),
+                fmt(NOW - timedelta(hours=rng.randint(0, 48))),
+            ),
         )
 
     # --- usage events ---
@@ -262,7 +280,9 @@ for email, division, tier, num_devices, profile in USERS:
             used_hours.add(h)
             used_hours.add((h + 1) % 24)
 
-            session_start = day.replace(hour=h, minute=rng.randint(0, 59), second=rng.randint(0, 59))
+            session_start = day.replace(
+                hour=h, minute=rng.randint(0, 59), second=rng.randint(0, 59)
+            )
             if session_start >= NOW:
                 continue
 
@@ -293,10 +313,15 @@ for email, division, tier, num_devices, profile in USERS:
 
                 # cache read: grows as context accumulates, heavy users hit it more
                 cache_read_ratio = {
-                    "max20": 0.75, "max5": 0.60, "standard": 0.40, "light": 0.20
+                    "max20": 0.75,
+                    "max5": 0.60,
+                    "standard": 0.40,
+                    "light": 0.20,
                 }[tier]
                 if turn_idx > 0 and accumulated_cache > 0:
-                    cr = int(accumulated_cache * cache_read_ratio * rng.uniform(0.5, 1.0))
+                    cr = int(
+                        accumulated_cache * cache_read_ratio * rng.uniform(0.5, 1.0)
+                    )
                     # decay over time (cache TTL / context rollover)
                     cr = max(0, cr - rng.randint(0, 500))
                 else:
@@ -307,23 +332,25 @@ for email, division, tier, num_devices, profile in USERS:
                 input_tok = int(input_tok * scale)
                 output_tok = int(output_tok * scale)
 
-                all_events.append((
-                    fmt(ts),          # received_at
-                    email,
-                    refresh_tok,
-                    device_id,
-                    session_id,
-                    turn_idx,
-                    fmt(ts),          # timestamp_utc
-                    fmt(session_start),
-                    model,
-                    input_tok,
-                    output_tok,
-                    cr,
-                    cw,
-                    "0.1.0",
-                    1,
-                ))
+                all_events.append(
+                    (
+                        fmt(ts),  # received_at
+                        email,
+                        refresh_tok,
+                        device_id,
+                        session_id,
+                        turn_idx,
+                        fmt(ts),  # timestamp_utc
+                        fmt(session_start),
+                        model,
+                        input_tok,
+                        output_tok,
+                        cr,
+                        cw,
+                        "0.1.0",
+                        1,
+                    )
+                )
 
         day += timedelta(days=1)
 
@@ -334,7 +361,7 @@ cur.executemany(
         timestamp_utc,session_start_utc,model,input_tokens,output_tokens,
         cache_read_tokens,cache_write_tokens,plugin_version,schema_version)
        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-    all_events
+    all_events,
 )
 
 # ---------------------------------------------------------------------------
@@ -342,19 +369,24 @@ cur.executemany(
 # ---------------------------------------------------------------------------
 
 TIER_BOUNDARIES = {
-    "max20":    350_000,
-    "max5":      80_000,
-    "standard":  15_000,
-    "light":          0,
+    "max20": 350_000,
+    "max5": 80_000,
+    "standard": 15_000,
+    "light": 0,
 }
 
 for email, _, tier, _, _ in USERS:
     peak = TIER_BOUNDARIES[tier] + rng.randint(-5000, 20000)
     window_count = rng.randint(12, 40)
-    label = tier.replace("max20", "Max 20×").replace("max5", "Max 5×").replace("standard", "Standard").replace("light", "Light")
+    label = (
+        tier.replace("max20", "Max 20×")
+        .replace("max5", "Max 5×")
+        .replace("standard", "Standard")
+        .replace("light", "Light")
+    )
     cur.execute(
         "INSERT OR REPLACE INTO tier_hints(email,tier_label,peak_tokens,method,window_count,updated_at) VALUES(?,?,?,?,?,?)",
-        (email, label, peak, "inferred", window_count, fmt(NOW))
+        (email, label, peak, "inferred", window_count, fmt(NOW)),
     )
 
 conn.commit()
