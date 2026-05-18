@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::time::Duration;
 
 use crate::model::{TokenCache, TokenResponse};
 use crate::offset;
@@ -62,10 +61,7 @@ fn exchange(data_dir: &Path, token_url: &str, refresh_token: &str) -> Result<Str
         ));
     }
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(5))
-        .build();
+    let agent = crate::agent::build(5);
 
     let resp = agent
         .post(token_url)

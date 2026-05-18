@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
+mod agent;
 mod auth;
 mod model;
 mod offset;

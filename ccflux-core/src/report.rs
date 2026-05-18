@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::signing::DeviceKey;
 
 pub enum ReportStatus {
@@ -43,10 +41,7 @@ pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportS
     let signature = key.sign(body.as_bytes(), &timestamp);
     let sig_header = format!("ed25519 {} {}", signature, key.public_key_b64());
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(5))
-        .build();
+    let agent = crate::agent::build(5);
 
     match agent
         .post(&url)

@@ -101,10 +101,7 @@ pub fn try_register(
     })
     .to_string();
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(5))
-        .timeout_read(std::time::Duration::from_secs(5))
-        .build();
+    let agent = crate::agent::build(5);
 
     match agent
         .post(&url)
