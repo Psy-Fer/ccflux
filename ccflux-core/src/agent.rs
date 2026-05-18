@@ -30,7 +30,8 @@ pub fn build(timeout_secs: u64, log: impl Fn(&str)) -> ureq::Agent {
                 for cert in rustls_pemfile::certs(&mut pem.as_slice()).flatten() {
                     let _ = roots.add(cert);
                 }
-                log("agent: custom CA parsed, building ClientConfig");
+                let cert_count = roots.len();
+                log(&format!("agent: custom CA parsed ({cert_count} certs in store), building ClientConfig"));
                 let provider = Arc::new(rustls::crypto::ring::default_provider());
                 let config = rustls::ClientConfig::builder_with_provider(provider)
                     .with_safe_default_protocol_versions()
