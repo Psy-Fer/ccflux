@@ -245,7 +245,20 @@ async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: 
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
 
-    match db::insert_usage(&state.pool, &access_token, &payload).await {
+    let device_id = if let Some(h) = sig_header {
+        let parts: Vec<&str> = h.splitn(3, ' ').collect();
+        if parts.len() == 3 {
+            db::device_id_from_pubkey(&state.pool, parts[2])
+                .await
+                .unwrap_or_default()
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    match db::insert_usage(&state.pool, &access_token, &device_id, &payload).await {
         Ok(true) => {
             state.metrics.inc(&state.metrics.reports_accepted);
             StatusCode::OK.into_response()

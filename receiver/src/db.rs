@@ -182,6 +182,12 @@ pub async fn init(path: &str) -> Result<SqlitePool, sqlx::Error> {
     sqlx::query(include_str!("../../schema.sql"))
         .execute(&pool)
         .await?;
+    // Migrate existing DBs that predate the device_id column.
+    let _ = sqlx::query(
+        "ALTER TABLE usage_events ADD COLUMN device_id TEXT NOT NULL DEFAULT ''",
+    )
+    .execute(&pool)
+    .await;
     Ok(pool)
 }
 
@@ -263,9 +269,23 @@ pub async fn issue_access_token(
 /// Validates an access token and inserts one usage row per model.
 /// Returns false if the token is unknown or expired (caller returns 401).
 /// Stores the refresh_token in user_token for a stable audit trail across rotations.
+pub async fn device_id_from_pubkey(
+    pool: &SqlitePool,
+    public_key: &str,
+) -> Result<String, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT COALESCE(device_id, '') as device_id FROM device_keys WHERE public_key = ?",
+    )
+    .bind(public_key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.get("device_id")).unwrap_or_default())
+}
+
 pub async fn insert_usage(
     pool: &SqlitePool,
     access_token: &str,
+    device_id: &str,
     payload: &UsagePayload,
 ) -> Result<bool, sqlx::Error> {
     let row = sqlx::query(
@@ -287,13 +307,14 @@ pub async fn insert_usage(
     for (model, usage) in &payload.models {
         sqlx::query(
             "INSERT OR IGNORE INTO usage_events
-             (user_email, user_token, session_id, turn_index, timestamp_utc,
+             (user_email, user_token, device_id, session_id, turn_index, timestamp_utc,
               session_start_utc, model, input_tokens, output_tokens,
               cache_read_tokens, cache_write_tokens, plugin_version, schema_version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&email)
         .bind(&refresh_token)
+        .bind(device_id)
         .bind(&payload.session_id)
         .bind(payload.turn_index as i64)
         .bind(&payload.timestamp_utc)
@@ -508,13 +529,8 @@ pub async fn admin_daily_stats(pool: &SqlitePool) -> Result<Vec<AdminDailyStat>,
 
 pub async fn admin_recent_events(pool: &SqlitePool) -> Result<Vec<AdminRecentEvent>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT received_at, user_email, session_id, turn_index, model,
-                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-                COALESCE((
-                    SELECT device_id FROM device_keys
-                    WHERE email = user_email AND revoked = 0
-                    ORDER BY last_seen_at DESC LIMIT 1
-                ), '') as device_id
+        "SELECT received_at, user_email, device_id, session_id, turn_index, model,
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
          FROM usage_events
          ORDER BY received_at DESC
          LIMIT 50",

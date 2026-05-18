@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS usage_events (
     received_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user_email          TEXT NOT NULL,
     user_token          TEXT NOT NULL,   -- refresh_token for stable audit trail
+    device_id           TEXT NOT NULL DEFAULT '',
     session_id          TEXT NOT NULL,
     turn_index          INTEGER NOT NULL,
     timestamp_utc       TIMESTAMP NOT NULL,
