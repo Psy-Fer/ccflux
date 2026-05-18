@@ -178,12 +178,16 @@ fn run_report(input: &str, is_session_end: bool) {
 
     let queue_path = offset::pending_reports_path(&data_dir);
 
+    offset::log_activity(&data_dir, "run_report: building TLS agent");
+    let agent = crate::agent::build(5);
+    offset::log_activity(&data_dir, "run_report: TLS agent ready");
+
     if signing::is_registered(&data_dir) {
         offset::log_activity(
             &data_dir,
             &format!("run_report: attempting POST to {endpoint}"),
         );
-        match report::post(&endpoint, &access_token, &body, &device_key) {
+        match report::post(&agent, &endpoint, &access_token, &body, &device_key) {
             ReportStatus::Accepted => {
                 offset::log_activity(
                     &data_dir,
@@ -200,7 +204,7 @@ fn run_report(input: &str, is_session_end: bool) {
                     turn_data.new_line,
                     is_session_end,
                 );
-                drain_one_queued(&data_dir, &endpoint, &access_token, &device_key);
+                drain_one_queued(&agent, &data_dir, &endpoint, &access_token, &device_key);
             }
             ReportStatus::KeyRevoked => {
                 offset::log_error(
@@ -266,10 +270,10 @@ fn run_report(input: &str, is_session_end: bool) {
     }
 }
 
-fn drain_one_queued(data_dir: &Path, endpoint: &str, access_token: &str, key: &signing::DeviceKey) {
+fn drain_one_queued(agent: &ureq::Agent, data_dir: &Path, endpoint: &str, access_token: &str, key: &signing::DeviceKey) {
     let queue_path = offset::pending_reports_path(data_dir);
     if let Some(queued_body) = queue::drain_one(&queue_path) {
-        match report::post(endpoint, access_token, &queued_body, key) {
+        match report::post(agent, endpoint, access_token, &queued_body, key) {
             ReportStatus::Accepted => {
                 offset::log_activity(data_dir, "report: drained 1 queued report ok");
             }

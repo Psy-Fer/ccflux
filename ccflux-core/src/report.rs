@@ -28,7 +28,7 @@ fn report_url(endpoint: &str) -> String {
     }
 }
 
-pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportStatus {
+pub fn post(agent: &ureq::Agent, endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportStatus {
     let allow_http = std::env::var("CCFLUX_ALLOW_HTTP").as_deref() == Ok("1");
     if !allow_http && !endpoint.starts_with("https://") {
         return ReportStatus::Failed(format!(
@@ -40,8 +40,6 @@ pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportS
     let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let signature = key.sign(body.as_bytes(), &timestamp);
     let sig_header = format!("ed25519 {} {}", signature, key.public_key_b64());
-
-    let agent = crate::agent::build(5);
 
     match agent
         .post(&url)
