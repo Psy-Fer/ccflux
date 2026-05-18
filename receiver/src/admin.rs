@@ -1247,8 +1247,19 @@ fn token_issued_page(email: &str, token: &str, action: &str, base_url: &str) -> 
 </div>
 <script>
 function copyEl(id,btn){{
-  navigator.clipboard.writeText(document.getElementById(id).textContent)
-    .then(function(){{btn.textContent='Copied!';setTimeout(function(){{btn.textContent='Copy';}},2000);}});
+  var text=document.getElementById(id).textContent;
+  if(navigator.clipboard){{
+    navigator.clipboard.writeText(text)
+      .then(function(){{btn.textContent='Copied!';setTimeout(function(){{btn.textContent='Copy';}},2000);}});
+  }}else{{
+    var ta=document.createElement('textarea');
+    ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    try{{document.execCommand('copy');btn.textContent='Copied!';}}
+    catch(e){{btn.textContent='Failed';}}
+    setTimeout(function(){{btn.textContent='Copy';}},2000);
+    document.body.removeChild(ta);
+  }}
 }}
 </script>"#,
         heading = heading,

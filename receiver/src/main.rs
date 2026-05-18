@@ -200,6 +200,17 @@ async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: 
         }
     };
 
+    // Parse and validate the payload before signature verification — cheap checks
+    // should gate expensive crypto work, not the other way around.
+    let payload: model::UsagePayload = match serde_json::from_slice(&body) {
+        Ok(p) => p,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+
+    if !is_valid_payload(&payload) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
     let sig_header = headers
         .get("x-ccflux-signature")
         .and_then(|v| v.to_str().ok());
@@ -242,15 +253,6 @@ async fn handle_report(State(state): State<AppState>, headers: HeaderMap, body: 
             eprintln!("signature verify error: {e}");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
-    }
-
-    let payload: model::UsagePayload = match serde_json::from_slice(&body) {
-        Ok(p) => p,
-        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
-    };
-
-    if !is_valid_payload(&payload) {
-        return StatusCode::BAD_REQUEST.into_response();
     }
 
     let device_id = if let Some(h) = sig_header {

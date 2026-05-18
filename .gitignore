@@ -32,3 +32,6 @@ docs/book
 *.db
 *.db-shm
 *.db-wal
+
+# Pen test script — keep local (contains target URL, documents attack surface)
+pentest.sh
