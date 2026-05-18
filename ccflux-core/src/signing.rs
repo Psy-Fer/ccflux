@@ -121,7 +121,10 @@ pub fn try_register(
             mark_registered(data_dir, &pubkey);
             true
         }
-        Err(_) => false,
+        Err(e) => {
+            crate::offset::log_error(data_dir, &format!("register-key failed: {e}"));
+            false
+        }
     }
 }
 
