@@ -12,7 +12,9 @@ pub fn build(timeout_secs: u64, log: impl Fn(&str)) -> ureq::Agent {
     if let Ok(path) = std::env::var("CCFLUX_CA_CERT") {
         match std::fs::read(&path) {
             Err(e) => {
-                log(&format!("tls: CCFLUX_CA_CERT read failed ({e}), using default TLS"));
+                log(&format!(
+                    "tls: CCFLUX_CA_CERT read failed ({e}), using default TLS"
+                ));
             }
             Ok(pem) => {
                 let mut roots = rustls::RootCertStore::empty();
@@ -25,9 +27,13 @@ pub fn build(timeout_secs: u64, log: impl Fn(&str)) -> ureq::Agent {
                     }
                 }
                 if added == 0 {
-                    log(&format!("tls: CCFLUX_CA_CERT={path} — no certs added, using default TLS"));
+                    log(&format!(
+                        "tls: CCFLUX_CA_CERT={path} — no certs added, using default TLS"
+                    ));
                 } else {
-                    log(&format!("tls: custom CA loaded from {path} ({added} cert(s))"));
+                    log(&format!(
+                        "tls: custom CA loaded from {path} ({added} cert(s))"
+                    ));
                     let provider = Arc::new(rustls::crypto::ring::default_provider());
                     let config = rustls::ClientConfig::builder_with_provider(provider)
                         .with_safe_default_protocol_versions()

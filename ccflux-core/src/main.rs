@@ -248,7 +248,13 @@ fn run_report(input: &str, is_session_end: bool) {
     }
 }
 
-fn drain_one_queued(agent: &ureq::Agent, data_dir: &Path, endpoint: &str, access_token: &str, key: &signing::DeviceKey) {
+fn drain_one_queued(
+    agent: &ureq::Agent,
+    data_dir: &Path,
+    endpoint: &str,
+    access_token: &str,
+    key: &signing::DeviceKey,
+) {
     let queue_path = offset::pending_reports_path(data_dir);
     if let Some(queued_body) = queue::drain_one(&queue_path) {
         match report::post(agent, endpoint, access_token, &queued_body, key) {

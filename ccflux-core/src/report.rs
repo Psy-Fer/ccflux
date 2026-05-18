@@ -28,7 +28,13 @@ fn report_url(endpoint: &str) -> String {
     }
 }
 
-pub fn post(agent: &ureq::Agent, endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportStatus {
+pub fn post(
+    agent: &ureq::Agent,
+    endpoint: &str,
+    token: &str,
+    body: &str,
+    key: &DeviceKey,
+) -> ReportStatus {
     let allow_http = std::env::var("CCFLUX_ALLOW_HTTP").as_deref() == Ok("1");
     if !allow_http && !endpoint.starts_with("https://") {
         return ReportStatus::Failed(format!(
