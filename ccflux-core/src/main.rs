@@ -179,6 +179,10 @@ fn run_report(input: &str, is_session_end: bool) {
     let queue_path = offset::pending_reports_path(&data_dir);
 
     if signing::is_registered(&data_dir) {
+        offset::log_activity(
+            &data_dir,
+            &format!("run_report: attempting POST to {endpoint}"),
+        );
         match report::post(&endpoint, &access_token, &body, &device_key) {
             ReportStatus::Accepted => {
                 offset::log_activity(
@@ -220,6 +224,10 @@ fn run_report(input: &str, is_session_end: bool) {
                 );
             }
             ReportStatus::KeyNotRegistered => {
+                offset::log_error(
+                    &data_dir,
+                    "ccflux: server says key-not-registered — clearing and re-queuing",
+                );
                 // Race condition: mark as unregistered and queue for next turn.
                 let _ = std::fs::remove_file(
                     offset::pending_reports_path(&data_dir).with_file_name("key_registered"),
