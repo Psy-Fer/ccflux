@@ -429,8 +429,11 @@ pub async fn handle_dashboard(
 
     let csrf = state.admin_token.as_deref().unwrap_or("");
 
-    let prov_form = if read_only { String::new() } else { format!(
-        r#"<form class="prov-form" method="post" action="/admin/users/provision">
+    let prov_form = if read_only {
+        String::new()
+    } else {
+        format!(
+            r#"<form class="prov-form" method="post" action="/admin/users/provision">
   <input type="hidden" name="csrf_token" value="{csrf_esc}">
   <div class="prov-row">
     <input type="email" name="email" placeholder="user@example.org" required>
@@ -440,8 +443,9 @@ pub async fn handle_dashboard(
     <button type="submit" class="btn-issue">Add user</button>
   </div>
 </form>"#,
-        csrf_esc = esc(csrf),
-    ) };
+            csrf_esc = esc(csrf),
+        )
+    };
 
     let user_provision_rows: String = if provisioned_users.is_empty() {
         r#"<tr><td colspan="7" class="empty">No users provisioned yet</td></tr>"#.to_string()
