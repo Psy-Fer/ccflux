@@ -18,6 +18,22 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" https://ccflux.example.org/admin/
 
 ---
 
+## Exporting a static snapshot
+
+Append `?export` to the dashboard URL to download a self-contained HTML file. The export is read-only — all mutating forms (Revoke, Reissue, Add user) are stripped. Everything else works offline: charts render, search filters work, panels expand and collapse.
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "https://ccflux.example.org/admin/?export" \
+  -o dashboard-snapshot.html
+```
+
+The file has no external dependencies and can be shared with stakeholders, attached to reports, or hosted as a static page. See the [Live Demo](./demo.md) for an example.
+
+> **Note:** The export contains user email addresses, device hostnames, and usage data for your whole organisation. No credentials are included — admin token, refresh tokens, and access tokens are all stripped. Treat the file the same way you would treat a spreadsheet export: don't commit it to a public repository or share it beyond the intended recipients.
+
+---
+
 ## Summary cards
 
 The top of the dashboard shows org-wide totals across all time:
@@ -94,9 +110,7 @@ Token consumption and cache hit rate per model across all time:
 
 The 5-hour window panel shows usage bucketed into Claude Code's rolling 5-hour billing reset windows. This is the key indicator for seat pressure.
 
-**Peak window bar chart** — maximum token consumption in any single 5-hour window per user. Users with peaks approaching their seat limit are candidates for upgrades.
-
-**Active window badge** — a live badge shows whether a user currently has an open window (a session active within the last 5 hours). Helps identify users in an ongoing heavy session.
+**Peak window bar chart** — maximum token consumption in any single 5-hour window per user, with the average window size shown alongside the peak. Users with peaks approaching their seat limit are candidates for upgrades.
 
 **Window detail table** — per-window breakdown showing start time, end time, status (open/closed), total tokens, turn count, and contributing session count.
 

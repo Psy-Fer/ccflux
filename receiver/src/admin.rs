@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -138,13 +138,18 @@ pub async fn handle_logout(State(state): State<AppState>) -> Response {
         .into_response()
 }
 
-pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap) -> Response {
+pub async fn handle_dashboard(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
     if state.admin_token.is_none() {
         return disabled_response();
     }
     if !check_auth(&state, &headers) {
         return Redirect::to("/admin/login").into_response();
     }
+    let read_only = params.contains_key("export");
 
     let data = tokio::try_join!(
         db::admin_org_summary(&state.pool),
@@ -263,14 +268,15 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     let user_table = format!(
         r#"<div class="panel" id="p-user-tbl">
   <div class="panel-head" onclick="togglePanel('p-user-tbl')">Usage by user — last 30 days <span class="chv">&#9660;</span></div>
-  <table>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by email or tier…" oninput="filterTable(this,'user-tbl-body')"></div>
+  <div class="tbl-scroll"><table>
     <thead><tr>
       <th>Email</th><th>Input</th><th>Output</th>
       <th>Cache reads</th><th>Cache writes</th>
       <th>Sessions</th><th>Turns</th><th>Last active</th><th>Tier</th>
     </tr></thead>
-    <tbody>{user_rows}</tbody>
-  </table>
+    <tbody id="user-tbl-body">{user_rows}</tbody>
+  </table></div>
 </div>"#
     );
 
@@ -304,13 +310,14 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     let model_table = format!(
         r#"<div class="panel" id="p-model-tbl">
   <div class="panel-head" onclick="togglePanel('p-model-tbl')">Model breakdown <span class="chv">&#9660;</span></div>
-  <table>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by model…" oninput="filterTable(this,'model-tbl-body')"></div>
+  <div class="tbl-scroll"><table>
     <thead><tr>
       <th>Model</th><th>Users</th><th>Turns</th>
       <th>Input</th><th>Output</th><th>Cache reads</th><th>Cache writes</th><th>Cache hit %</th>
     </tr></thead>
-    <tbody>{model_rows}</tbody>
-  </table>
+    <tbody id="model-tbl-body">{model_rows}</tbody>
+  </table></div>
 </div>"#
     );
 
@@ -325,7 +332,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
                 } else {
                     r#"<span class="badge ok">Active</span>"#
                 };
-                let revoke_btn = if !k.revoked {
+                let revoke_btn = if !k.revoked && !read_only {
                     let csrf = state.admin_token.as_deref().unwrap_or("");
                     format!(
                         r#"<form class="inline" method="post" action="/admin/device-keys/revoke"
@@ -422,7 +429,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
 
     let csrf = state.admin_token.as_deref().unwrap_or("");
 
-    let prov_form = format!(
+    let prov_form = if read_only { String::new() } else { format!(
         r#"<form class="prov-form" method="post" action="/admin/users/provision">
   <input type="hidden" name="csrf_token" value="{csrf_esc}">
   <div class="prov-row">
@@ -434,7 +441,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
   </div>
 </form>"#,
         csrf_esc = esc(csrf),
-    );
+    ) };
 
     let user_provision_rows: String = if provisioned_users.is_empty() {
         r#"<tr><td colspan="7" class="empty">No users provisioned yet</td></tr>"#.to_string()
@@ -450,7 +457,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
                     ("ok", "Active")
                 };
                 let status_html = format!(r#"<span class="badge {badge_cls}">{badge_lbl}</span>"#);
-                let revoke_btn = if !u.revoked && !u.is_expired {
+                let revoke_btn = if !u.revoked && !u.is_expired && !read_only {
                     format!(
                         r#"<form class="inline" method="post" action="/admin/users/revoke"
                 onsubmit="return confirm('Revoke this token?')">
@@ -464,7 +471,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
                 } else {
                     String::new()
                 };
-                let reissue_btn = if !u.revoked && !u.is_expired {
+                let reissue_btn = if !u.revoked && !u.is_expired && !read_only {
                     format!(
                         r#"<form class="inline" method="post" action="/admin/users/reissue"
                 onsubmit="return confirm('Revoke current token and issue a new one?')">
@@ -545,34 +552,10 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     peak_rows.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     let win_bar_svg = svg_hbar_chart(&peak_rows);
-    let win_bar_note: String = peak_rows
-        .iter()
-        .map(|(email, peak, avg)| {
-            let active_note = windows
-                .iter()
-                .find(|w| w.user_email == *email && w.is_active)
-                .map(|w| {
-                    format!(
-                        " &nbsp;<span class='badge ok'>active</span> {} billed this window — resets {}",
-                        fmt_num(w.billed_tokens()),
-                        ts(&w.end.to_rfc3339()),
-                    )
-                })
-                .unwrap_or_default();
-            format!(
-                "<li><strong>{}</strong> — peak {}, avg {}{}</li>",
-                esc(email),
-                fmt_num(*peak),
-                fmt_num(*avg),
-                active_note,
-            )
-        })
-        .collect();
     let win_bar = format!(
         r#"<div class="panel" id="p-win-bar">
   <div class="panel-head" onclick="togglePanel('p-win-bar')">5-hour billing windows — peak billed tokens by user (last 30 days) <span class="chv">&#9660;</span></div>
   <div class="chart-wrap">{win_bar_svg}</div>
-  <ul class="win-note">{win_bar_note}</ul>
 </div>"#
     );
 
@@ -623,26 +606,38 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     let win_table = format!(
         r#"<div class="panel" id="p-win-tbl">
   <div class="panel-head" onclick="togglePanel('p-win-tbl')">5-hour billing windows — last 7 days <span class="chv">&#9660;</span></div>
-  <table>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by user or status…" oninput="filterTable(this,'win-tbl-body')"></div>
+  <div class="tbl-scroll"><table>
     <thead><tr>
       <th>User</th><th>Window start</th><th>Window end</th>
       <th>Input</th><th>Output</th><th>Cache reads</th><th>Cache writes</th>
       <th>Turns</th><th>Sessions</th><th>Status</th>
     </tr></thead>
-    <tbody>{win_rows}</tbody>
-  </table>
+    <tbody id="win-tbl-body">{win_rows}</tbody>
+  </table></div>
 </div>"#
     );
 
-    let body = format!(
-        r#"<div class="topbar">
-  <h1>ccflux admin</h1>
-  <span class="sub">Updated <span data-utc="{now_iso}">{now_display}</span></span>
+    let topbar_controls = if read_only {
+        format!(
+            r#"<span class="sub">Exported <span data-utc="{now_iso}">{now_display}</span></span>
+  <span class="export-badge">read-only export</span>"#
+        )
+    } else {
+        format!(
+            r#"<span class="sub">Updated <span data-utc="{now_iso}">{now_display}</span></span>
   <input class="ar-inp" id="ar-inp" type="number" min="5" max="3600" value="60" onchange="onIntervalChange()" title="Refresh interval in seconds">
   <label class="ar-lbl" for="ar-inp">s</label>
   <button class="ar-btn" id="ar-btn" onclick="toggleAutoRefresh()">Auto-refresh</button>
   <span class="ar-cd" id="ar-cd"></span>
-  <a class="logout-link" href="/admin/logout">Logout</a>
+  <a class="logout-link" href="/admin/logout">Logout</a>"#
+        )
+    };
+
+    let body = format!(
+        r#"<div class="topbar">
+  <h1>ccflux admin</h1>
+  {topbar_controls}
 </div>
 <div class="wrap">
   {cards}
@@ -659,7 +654,19 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
 </div>"#
     );
 
-    Html(page_shell("Dashboard", &body)).into_response()
+    let html = page_shell("Dashboard", &body);
+    if read_only {
+        Response::builder()
+            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header(
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"ccflux-dashboard.html\"",
+            )
+            .body(Body::from(html))
+            .unwrap()
+    } else {
+        Html(html).into_response()
+    }
 }
 
 // ── User provisioning handlers ───────────────────────────────────────────────
@@ -1015,7 +1022,8 @@ fn svg_hbar_chart(rows: &[(&str, i64, i64)]) -> String {
     let bar_h = 26i64;
     let gap = 6i64;
     let label_w = 200i64;
-    let value_w = 60i64;
+    let has_avg = rows.iter().any(|r| r.2 > 0);
+    let value_w = if has_avg { 120i64 } else { 60i64 };
     let plot_w = 760i64 - label_w - value_w - 16;
     let h = rows.len() as i64 * (bar_h + gap) + gap;
 
@@ -1024,23 +1032,38 @@ fn svg_hbar_chart(rows: &[(&str, i64, i64)]) -> String {
     let mut svg = format!(
         "<svg width='760' height='{h}' xmlns='http://www.w3.org/2000/svg' style='max-width:100%;display:block'>"
     );
-    for (i, (label, val, _total)) in rows.iter().enumerate() {
+    for (i, (label, val, avg)) in rows.iter().enumerate() {
         let y = gap + i as i64 * (bar_h + gap);
         let bar_len = (val * plot_w / max_val).max(if *val > 0 { 2 } else { 0 });
         let tx = label_w + plot_w + 8;
-        let ty = y + bar_h / 2 + 4;
         let lbl_y = y + bar_h / 2 + 4;
         svg.push_str(&format!(
             "<text x='{label_w_m4}' y='{lbl_y}' text-anchor='end' font-size='12' fill='#1a1a2e' \
                font-family='SFMono-Regular,Consolas,monospace'>{label_esc}</text>\
              <rect x='{label_w}' y='{y}' width='{plot_w}' height='{bar_h}' rx='3' fill='#f4f6f8'/>\
-             <rect x='{label_w}' y='{y}' width='{bar_len}' height='{bar_h}' rx='3' fill='#4f8ef7'/>\
-             <text x='{tx}' y='{ty}' font-size='11' fill='#5a6676' \
-               font-family='SFMono-Regular,Consolas,monospace'>{val_fmt}</text>",
+             <rect x='{label_w}' y='{y}' width='{bar_len}' height='{bar_h}' rx='3' fill='#4f8ef7'/>",
             label_w_m4 = label_w - 8,
             label_esc = esc(label),
-            val_fmt = fmt_num(*val),
         ));
+        if has_avg && *avg > 0 {
+            svg.push_str(&format!(
+                "<text x='{tx}' y='{peak_y}' font-size='10' fill='#5a6676' \
+                   font-family='SFMono-Regular,Consolas,monospace'>{val_fmt}</text>\
+                 <text x='{tx}' y='{avg_y}' font-size='10' fill='#8894a4' \
+                   font-family='SFMono-Regular,Consolas,monospace'>avg {avg_fmt}</text>",
+                peak_y = y + bar_h / 2 - 1,
+                avg_y = y + bar_h / 2 + 10,
+                val_fmt = fmt_num(*val),
+                avg_fmt = fmt_num(*avg),
+            ));
+        } else {
+            svg.push_str(&format!(
+                "<text x='{tx}' y='{ty}' font-size='11' fill='#5a6676' \
+                   font-family='SFMono-Regular,Consolas,monospace'>{val_fmt}</text>",
+                ty = y + bar_h / 2 + 4,
+                val_fmt = fmt_num(*val),
+            ));
+        }
     }
     svg.push_str("</svg>");
     svg
@@ -1071,6 +1094,7 @@ fn page_shell(title: &str, content: &str) -> String {
     .panel.collapsed>*:not(.panel-head){{display:none}}
     .chv{{font-size:.65rem;opacity:.4;transition:transform .15s;display:inline-block;flex-shrink:0}}
     .panel.collapsed .chv{{transform:rotate(-90deg)}}
+    .export-badge{{margin-left:auto;font-size:.72rem;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.7);padding:.15rem .55rem;border-radius:4px;white-space:nowrap}}
     .logout-link{{color:rgba(255,255,255,.6);font-size:.82rem;text-decoration:none;margin-left:1.25rem;white-space:nowrap}}
     .logout-link:hover{{color:white}}
     .ar-inp{{background:transparent;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.75);font-size:.75rem;border-radius:4px;padding:.15rem .3rem;margin-left:.75rem;width:3.5rem;text-align:center;-moz-appearance:textfield}}
@@ -1085,7 +1109,7 @@ fn page_shell(title: &str, content: &str) -> String {
     .tier-med{{background:#dbeafe;color:#1e40af}}
     .tier-low{{background:#fef9c3;color:#854d0e}}
     .tier-unk{{background:#f1f5f9;color:#94a3b8}}
-    .chart-wrap{{padding:1rem 1.1rem .75rem;overflow-x:auto}}
+    .chart-wrap{{padding:1rem 1.1rem .75rem;overflow-x:auto;max-height:420px;overflow-y:auto}}
     .tbl-scroll{{overflow-y:auto;max-height:420px}}
     .tbl-scroll thead th{{position:sticky;top:0;z-index:1}}
     .tbl-filter-wrap{{padding:.5rem 1.1rem .35rem}}
@@ -1105,8 +1129,6 @@ fn page_shell(title: &str, content: &str) -> String {
     .rev{{background:#fee2e2;color:#dc2626}}
     .empty{{padding:2rem;text-align:center;color:#8894a4;font-size:.85rem}}
     form.inline{{display:inline}}
-    .win-note{{list-style:none;padding:.75rem 1.1rem;border-top:1px solid #eef0f3;display:flex;flex-direction:column;gap:.35rem}}
-    .win-note li{{font-size:.85rem;color:#1a1a2e;line-height:1.5}}
     .btn-revoke{{background:none;border:1px solid #dc2626;color:#dc2626;padding:.2rem .5rem;border-radius:4px;font-size:.72rem;cursor:pointer}}
     .btn-revoke:hover{{background:#dc2626;color:white}}
     .btn-issue{{background:none;border:1px solid #2563eb;color:#2563eb;padding:.35rem .75rem;border-radius:4px;font-size:.82rem;cursor:pointer;white-space:nowrap}}

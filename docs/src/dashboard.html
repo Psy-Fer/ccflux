@@ -1,0 +1,2067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dashboard — ccflux</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f4f6f8;color:#1a1a2e;font-size:14px}
+    .topbar{background:#1a1a2e;color:rgba(255,255,255,.9);padding:.75rem 1.5rem;display:flex;align-items:center}
+    .topbar h1{font-size:1rem;font-weight:700;letter-spacing:.03em}
+    .topbar .sub{font-size:.8rem;opacity:.5;margin-left:auto}
+    .wrap{max-width:1200px;margin:0 auto;padding:1.5rem}
+    .cards{display:flex;flex-wrap:wrap;gap:.75rem;margin-bottom:1.25rem}
+    .card{background:white;border-radius:8px;padding:1rem 1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.08);flex:1;min-width:130px}
+    .card .lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#8894a4;margin-bottom:.3rem}
+    .card .val{font-size:1.55rem;font-weight:700;color:#1a1a2e;line-height:1}
+    .panel{background:white;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:1.25rem;overflow:hidden}
+    .panel-head{padding:.65rem 1.1rem;border-bottom:1px solid #eef0f3;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#5a6676;cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center}
+    .panel.collapsed>.panel-head{border-bottom:none}
+    .panel.collapsed>*:not(.panel-head){display:none}
+    .chv{font-size:.65rem;opacity:.4;transition:transform .15s;display:inline-block;flex-shrink:0}
+    .panel.collapsed .chv{transform:rotate(-90deg)}
+    .export-badge{margin-left:auto;font-size:.72rem;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.7);padding:.15rem .55rem;border-radius:4px;white-space:nowrap}
+    .logout-link{color:rgba(255,255,255,.6);font-size:.82rem;text-decoration:none;margin-left:1.25rem;white-space:nowrap}
+    .logout-link:hover{color:white}
+    .ar-inp{background:transparent;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.75);font-size:.75rem;border-radius:4px;padding:.15rem .3rem;margin-left:.75rem;width:3.5rem;text-align:center;-moz-appearance:textfield}
+    .ar-inp::-webkit-inner-spin-button,.ar-inp::-webkit-outer-spin-button{-webkit-appearance:none}
+    .ar-lbl{font-size:.75rem;color:rgba(255,255,255,.45);margin-left:.2rem}
+    .ar-btn{background:none;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.55);padding:.2rem .55rem;border-radius:4px;font-size:.78rem;cursor:pointer;margin-left:.4rem;white-space:nowrap}
+    .ar-btn.ar-on{border-color:rgba(79,142,247,.8);color:#4f8ef7}
+    .ar-btn:hover{color:white;border-color:rgba(255,255,255,.55)}
+    .ar-cd{font-size:.75rem;color:rgba(255,255,255,.4);margin-left:.35rem;min-width:5rem;display:inline-block}
+    .tier-badge{display:inline-block;padding:.15rem .45rem;border-radius:3px;font-size:.7rem;font-weight:600;letter-spacing:.04em;white-space:nowrap;cursor:default}
+    .tier-exact{background:#d1fae5;color:#065f46}
+    .tier-med{background:#dbeafe;color:#1e40af}
+    .tier-low{background:#fef9c3;color:#854d0e}
+    .tier-unk{background:#f1f5f9;color:#94a3b8}
+    .chart-wrap{padding:1rem 1.1rem .75rem;overflow-x:auto;max-height:420px;overflow-y:auto}
+    .tbl-scroll{overflow-y:auto;max-height:420px}
+    .tbl-scroll thead th{position:sticky;top:0;z-index:1}
+    .tbl-filter-wrap{padding:.5rem 1.1rem .35rem}
+    .tbl-filter{width:100%;padding:.35rem .6rem;border:1px solid #d0d7de;border-radius:4px;font-size:.85rem;box-sizing:border-box}
+    .tbl-filter:focus{outline:none;border-color:#4f8ef7}
+    table{width:100%;border-collapse:collapse}
+    th{padding:.45rem 1rem;background:#f8f9fb;border-bottom:1px solid #eef0f3;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8894a4;text-align:left;white-space:nowrap}
+    td{padding:.55rem 1rem;border-bottom:1px solid #f4f6f8;vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    tbody tr:hover td{background:#f8f9fb}
+    td.num{text-align:right;font-variant-numeric:tabular-nums}
+    th:not(:first-child){text-align:right}
+    .mono{font-family:"SFMono-Regular",Consolas,monospace}
+    .sm{font-size:.8rem;color:#5a6676}
+    .badge{display:inline-block;padding:.2em .5em;border-radius:4px;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+    .ok{background:#dcfce7;color:#16a34a}
+    .rev{background:#fee2e2;color:#dc2626}
+    .empty{padding:2rem;text-align:center;color:#8894a4;font-size:.85rem}
+    form.inline{display:inline}
+    .btn-revoke{background:none;border:1px solid #dc2626;color:#dc2626;padding:.2rem .5rem;border-radius:4px;font-size:.72rem;cursor:pointer}
+    .btn-revoke:hover{background:#dc2626;color:white}
+    .btn-issue{background:none;border:1px solid #2563eb;color:#2563eb;padding:.35rem .75rem;border-radius:4px;font-size:.82rem;cursor:pointer;white-space:nowrap}
+    .btn-issue:hover{background:#2563eb;color:white}
+    .btn-reissue{background:none;border:1px solid #2563eb;color:#2563eb;padding:.2rem .5rem;border-radius:4px;font-size:.72rem;cursor:pointer;white-space:nowrap}
+    .btn-reissue:hover{background:#2563eb;color:white}
+    .exp{background:#fef3c7;color:#d97706}
+    .prov-form{padding:.75rem 1.1rem;border-bottom:1px solid #eef0f3}
+    .prov-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+    .prov-row input{padding:.4rem .6rem;border:1px solid #d0d7de;border-radius:4px;font-size:.85rem;min-width:0}
+    .prov-row input[type=email]{flex:2;min-width:160px}
+    .prov-row input[type=text]{flex:1;min-width:100px}
+    .prov-row input[type=number]{width:70px}
+    .prov-lbl{font-size:.8rem;color:#5a6676;white-space:nowrap}
+    .tok-wrap{padding:1.25rem 1.1rem}
+    .tok-warn{color:#d97706;font-size:.85rem;margin-bottom:.75rem;font-weight:500}
+    .tok-box{display:flex;align-items:center;gap:.75rem;margin-bottom:1rem}
+    .tok-box code{font-family:"SFMono-Regular",Consolas,monospace;font-size:.85rem;background:#f8f9fb;padding:.5rem .75rem;border-radius:6px;border:1px solid #eef0f3;flex:1;overflow-x:auto;word-break:break-all}
+    .btn-copy{background:none;border:1px solid #8894a4;color:#5a6676;padding:.35rem .65rem;border-radius:4px;font-size:.82rem;cursor:pointer;white-space:nowrap}
+    .btn-copy:hover{background:#f8f9fb}
+    .tok-hint{font-size:.85rem;color:#5a6676;line-height:1.6}
+    .back-link{font-size:.85rem;color:#4f8ef7;text-decoration:none}
+    .back-link:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <h1>ccflux admin</h1>
+  <span class="sub">Exported <span data-utc="2026-05-18T11:27:23.313701516+00:00">2026-05-18 11:27 UTC</span></span>
+  <span class="export-badge">read-only export</span>
+</div>
+<div class="wrap">
+  <div class="cards">
+  <div class="card"><div class="lbl">Users</div><div class="val">15</div></div><div class="card"><div class="lbl">Sessions</div><div class="val">1k</div></div><div class="card"><div class="lbl">Turns</div><div class="val">15k</div></div><div class="card"><div class="lbl">Input</div><div class="val">334.5M</div></div><div class="card"><div class="lbl">Output</div><div class="val">39.1M</div></div><div class="card"><div class="lbl">Cache hit</div><div class="val">15.4%</div></div>
+</div>
+  <div class="panel" id="p-daily">
+  <div class="panel-head" onclick="togglePanel('p-daily')">Daily billed tokens — last 30 days <span class="chv">&#9660;</span></div>
+  <div class="chart-wrap"><svg width='760' height='160' xmlns='http://www.w3.org/2000/svg' style='max-width:100%;display:block'><line x1='60' y1='124' x2='744' y2='124' stroke='#f0f0f0' stroke-width='1'/><text x='56' y='128' text-anchor='end' fill='#aaa' font-size='10'>0</text><line x1='60' y1='70' x2='744' y2='70' stroke='#f0f0f0' stroke-width='1'/><text x='56' y='74' text-anchor='end' fill='#aaa' font-size='10'>6.0M</text><line x1='60' y1='16' x2='744' y2='16' stroke='#f0f0f0' stroke-width='1'/><text x='56' y='20' text-anchor='end' fill='#aaa' font-size='10'>12.0M</text><line x1='60' y1='16' x2='60' y2='124' stroke='#e0e0e0' stroke-width='1'/><polygon points='60,87 83,42 107,28 130,39 154,39 177,24 201,81 225,89 248,40 272,38 295,46 319,50 343,16 366,79 390,81 413,50 437,42 460,46 484,33 508,17 531,61 555,82 578,49 602,39 626,49 649,43 673,46 696,93 720,79 744,41 744,124 60,124' fill='#4f8ef7' fill-opacity='0.12'/><polyline points='60,87 83,42 107,28 130,39 154,39 177,24 201,81 225,89 248,40 272,38 295,46 319,50 343,16 366,79 390,81 413,50 437,42 460,46 484,33 508,17 531,61 555,82 578,49 602,39 626,49 649,43 673,46 696,93 720,79 744,41' fill='none' stroke='#4f8ef7' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'/><text x='60' y='138' text-anchor='middle' fill='#aaa' font-size='10'>04-19</text><text x='201' y='138' text-anchor='middle' fill='#aaa' font-size='10'>04-25</text><text x='366' y='138' text-anchor='middle' fill='#aaa' font-size='10'>05-02</text><text x='531' y='138' text-anchor='middle' fill='#aaa' font-size='10'>05-09</text><text x='696' y='138' text-anchor='middle' fill='#aaa' font-size='10'>05-16</text><text x='744' y='138' text-anchor='middle' fill='#aaa' font-size='10'>05-18</text></svg></div>
+</div>
+  <div class="panel" id="p-user-bar">
+  <div class="panel-head" onclick="togglePanel('p-user-bar')">Billed tokens by user — last 30 days <span class="chv">&#9660;</span></div>
+  <div class="chart-wrap"><svg width='760' height='486' xmlns='http://www.w3.org/2000/svg' style='max-width:100%;display:block'><text x='192' y='23' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>james.wilson@example.com</text><rect x='200' y='6' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='6' width='484' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='23' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>65.9M</text><text x='192' y='55' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>alex.chen@example.com</text><rect x='200' y='38' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='38' width='465' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='55' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>63.4M</text><text x='192' y='87' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>sarah.thompson@example.com</text><rect x='200' y='70' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='70' width='431' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='87' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>58.8M</text><text x='192' y='119' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>lisa.anderson@example.com</text><rect x='200' y='102' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='102' width='85' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='119' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>11.6M</text><text x='192' y='151' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>emily.rodriguez@example.com</text><rect x='200' y='134' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='134' width='77' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='151' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>10.6M</text><text x='192' y='183' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>michael.park@example.com</text><rect x='200' y='166' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='166' width='76' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='183' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>10.5M</text><text x='192' y='215' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>rachel.nguyen@example.com</text><rect x='200' y='198' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='198' width='45' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='215' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>6.2M</text><text x='192' y='247' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>david.kim@example.com</text><rect x='200' y='230' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='230' width='41' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='247' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>5.6M</text><text x='192' y='279' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>thomas.brown@example.com</text><rect x='200' y='262' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='262' width='19' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='279' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>2.7M</text><text x='192' y='311' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>kevin.taylor@example.com</text><rect x='200' y='294' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='294' width='13' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='311' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>1.9M</text><text x='192' y='343' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>chris.martin@example.com</text><rect x='200' y='326' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='326' width='13' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='343' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>1.8M</text><text x='192' y='375' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>jennifer.lee@example.com</text><rect x='200' y='358' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='358' width='12' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='375' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>1.6M</text><text x='192' y='407' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>amanda.white@example.com</text><rect x='200' y='390' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='390' width='11' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='407' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>1.6M</text><text x='192' y='439' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>stephanie.garcia@example.com</text><rect x='200' y='422' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='422' width='2' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='439' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>223k</text><text x='192' y='471' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>brian.jones@example.com</text><rect x='200' y='454' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='454' width='2' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='471' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>178k</text></svg></div>
+</div>
+  <div class="panel" id="p-model-bar">
+  <div class="panel-head" onclick="togglePanel('p-model-bar')">Billed tokens by model — all time <span class="chv">&#9660;</span></div>
+  <div class="chart-wrap"><svg width='760' height='102' xmlns='http://www.w3.org/2000/svg' style='max-width:100%;display:block'><text x='192' y='23' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>claude-sonnet-4-6</text><rect x='200' y='6' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='6' width='484' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='23' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>213.6M</text><text x='192' y='55' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>claude-opus-4-7</text><rect x='200' y='38' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='38' width='307' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='55' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>135.7M</text><text x='192' y='87' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>claude-haiku-4-5-20251001</text><rect x='200' y='70' width='484' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='70' width='55' height='26' rx='3' fill='#4f8ef7'/><text x='692' y='87' font-size='11' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>24.3M</text></svg></div>
+</div>
+  <div class="panel" id="p-win-bar">
+  <div class="panel-head" onclick="togglePanel('p-win-bar')">5-hour billing windows — peak billed tokens by user (last 30 days) <span class="chv">&#9660;</span></div>
+  <div class="chart-wrap"><svg width='760' height='486' xmlns='http://www.w3.org/2000/svg' style='max-width:100%;display:block'><text x='192' y='23' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>alex.chen@example.com</text><rect x='200' y='6' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='6' width='424' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='18' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>2.9M</text><text x='632' y='29' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 1.1M</text><text x='192' y='55' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>james.wilson@example.com</text><rect x='200' y='38' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='38' width='397' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='50' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>2.7M</text><text x='632' y='61' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 1.2M</text><text x='192' y='87' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>sarah.thompson@example.com</text><rect x='200' y='70' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='70' width='391' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='82' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>2.7M</text><text x='632' y='93' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 1.1M</text><text x='192' y='119' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>lisa.anderson@example.com</text><rect x='200' y='102' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='102' width='112' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='114' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>776k</text><text x='632' y='125' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 270k</text><text x='192' y='151' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>emily.rodriguez@example.com</text><rect x='200' y='134' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='134' width='91' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='146' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>630k</text><text x='632' y='157' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 253k</text><text x='192' y='183' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>michael.park@example.com</text><rect x='200' y='166' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='166' width='86' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='178' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>595k</text><text x='632' y='189' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 249k</text><text x='192' y='215' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>rachel.nguyen@example.com</text><rect x='200' y='198' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='198' width='59' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='210' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>410k</text><text x='632' y='221' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 187k</text><text x='192' y='247' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>david.kim@example.com</text><rect x='200' y='230' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='230' width='49' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='242' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>340k</text><text x='632' y='253' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 181k</text><text x='192' y='279' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>chris.martin@example.com</text><rect x='200' y='262' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='262' width='25' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='274' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>177k</text><text x='632' y='285' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 64k</text><text x='192' y='311' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>thomas.brown@example.com</text><rect x='200' y='294' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='294' width='23' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='306' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>161k</text><text x='632' y='317' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 93k</text><text x='192' y='343' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>kevin.taylor@example.com</text><rect x='200' y='326' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='326' width='21' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='338' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>152k</text><text x='632' y='349' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 68k</text><text x='192' y='375' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>jennifer.lee@example.com</text><rect x='200' y='358' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='358' width='21' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='370' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>152k</text><text x='632' y='381' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 66k</text><text x='192' y='407' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>amanda.white@example.com</text><rect x='200' y='390' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='390' width='19' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='402' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>134k</text><text x='632' y='413' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 57k</text><text x='192' y='439' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>brian.jones@example.com</text><rect x='200' y='422' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='422' width='4' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='434' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>31k</text><text x='632' y='445' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 12k</text><text x='192' y='471' text-anchor='end' font-size='12' fill='#1a1a2e' font-family='SFMono-Regular,Consolas,monospace'>stephanie.garcia@example.com</text><rect x='200' y='454' width='424' height='26' rx='3' fill='#f4f6f8'/><rect x='200' y='454' width='4' height='26' rx='3' fill='#4f8ef7'/><text x='632' y='466' font-size='10' fill='#5a6676' font-family='SFMono-Regular,Consolas,monospace'>30k</text><text x='632' y='477' font-size='10' fill='#8894a4' font-family='SFMono-Regular,Consolas,monospace'>avg 16k</text></svg></div>
+</div>
+  <div class="panel" id="p-user-tbl">
+  <div class="panel-head" onclick="togglePanel('p-user-tbl')">Usage by user — last 30 days <span class="chv">&#9660;</span></div>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by email or tier…" oninput="filterTable(this,'user-tbl-body')"></div>
+  <div class="tbl-scroll"><table>
+    <thead><tr>
+      <th>Email</th><th>Input</th><th>Output</th>
+      <th>Cache reads</th><th>Cache writes</th>
+      <th>Sessions</th><th>Turns</th><th>Last active</th><th>Tier</th>
+    </tr></thead>
+    <tbody id="user-tbl-body"><tr>
+  <td>james.wilson@example.com</td>
+  <td class="num">59.0M</td><td class="num">6.9M</td>
+  <td class="num">9.0M</td><td class="num">1.5M</td>
+  <td class="num">99</td><td class="num">1711</td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:00:50Z">2026-05-18 07:00</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 30 windows · peak ~362k">Max 20×</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="num">56.9M</td><td class="num">6.6M</td>
+  <td class="num">9.0M</td><td class="num">1.5M</td>
+  <td class="num">98</td><td class="num">1645</td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:07:45Z">2026-05-18 05:07</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 17 windows · peak ~364k">Max 20×</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="num">52.6M</td><td class="num">6.2M</td>
+  <td class="num">8.4M</td><td class="num">1.4M</td>
+  <td class="num">96</td><td class="num">1529</td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:17:42Z">2026-05-18 07:17</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 24 windows · peak ~369k">Max 20×</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="num">10.4M</td><td class="num">1.2M</td>
+  <td class="num">3.3M</td><td class="num">872k</td>
+  <td class="num">72</td><td class="num">872</td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:56:54Z">2026-05-18 02:56</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 15 windows · peak ~78k">Max 5×</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="num">9.5M</td><td class="num">1.1M</td>
+  <td class="num">3.0M</td><td class="num">804k</td>
+  <td class="num">66</td><td class="num">789</td>
+  <td class="mono sm"><span data-utc="2026-05-18T06:44:38Z">2026-05-18 06:44</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 15 windows · peak ~92k">Max 5×</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="num">9.4M</td><td class="num">1.1M</td>
+  <td class="num">2.9M</td><td class="num">803k</td>
+  <td class="num">69</td><td class="num">786</td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:10:19Z">2026-05-18 03:10</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 33 windows · peak ~80k">Max 5×</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="num">5.5M</td><td class="num">634k</td>
+  <td class="num">1.6M</td><td class="num">570k</td>
+  <td class="num">49</td><td class="num">443</td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:26:05Z">2026-05-18 04:26</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 29 windows · peak ~85k">Max 5×</span></td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="num">5.0M</td><td class="num">591k</td>
+  <td class="num">1.4M</td><td class="num">516k</td>
+  <td class="num">49</td><td class="num">437</td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:17:38Z">2026-05-18 03:17</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 29 windows · peak ~98k">Max 5×</span></td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="num">2.4M</td><td class="num">274k</td>
+  <td class="num">809k</td><td class="num">452k</td>
+  <td class="num">45</td><td class="num">390</td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:04:57Z">2026-05-18 02:04</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 22 windows · peak ~28k">Standard</span></td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="num">1.7M</td><td class="num">205k</td>
+  <td class="num">539k</td><td class="num">413k</td>
+  <td class="num">43</td><td class="num">288</td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:09:34Z">2026-05-18 05:09</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 38 windows · peak ~15k">Standard</span></td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="num">1.6M</td><td class="num">195k</td>
+  <td class="num">463k</td><td class="num">342k</td>
+  <td class="num">39</td><td class="num">258</td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:06:48Z">2026-05-18 03:06</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 31 windows · peak ~17k">Standard</span></td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="num">1.5M</td><td class="num">176k</td>
+  <td class="num">445k</td><td class="num">377k</td>
+  <td class="num">41</td><td class="num">255</td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:02:50Z">2026-05-18 04:02</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 38 windows · peak ~17k">Standard</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="num">1.4M</td><td class="num">169k</td>
+  <td class="num">439k</td><td class="num">389k</td>
+  <td class="num">41</td><td class="num">239</td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:06:33Z">2026-05-18 05:06</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 34 windows · peak ~31k">Standard</span></td>
+</tr><tr>
+  <td>stephanie.garcia@example.com</td>
+  <td class="num">202k</td><td class="num">21k</td>
+  <td class="num">54k</td><td class="num">153k</td>
+  <td class="num">19</td><td class="num">86</td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:25:09Z">2026-05-18 03:25</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 23 windows · peak ~14k">Light</span></td>
+</tr><tr>
+  <td>brian.jones@example.com</td>
+  <td class="num">157k</td><td class="num">22k</td>
+  <td class="num">37k</td><td class="num">123k</td>
+  <td class="num">17</td><td class="num">73</td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:09:05Z">2026-05-18 03:09</span></td>
+  <td><span class="tier-badge tier-med" title="Inferred · 33 windows · peak ~9k">Light</span></td>
+</tr></tbody>
+  </table></div>
+</div>
+  <div class="panel" id="p-model-tbl">
+  <div class="panel-head" onclick="togglePanel('p-model-tbl')">Model breakdown <span class="chv">&#9660;</span></div>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by model…" oninput="filterTable(this,'model-tbl-body')"></div>
+  <div class="tbl-scroll"><table>
+    <thead><tr>
+      <th>Model</th><th>Users</th><th>Turns</th>
+      <th>Input</th><th>Output</th><th>Cache reads</th><th>Cache writes</th><th>Cache hit %</th>
+    </tr></thead>
+    <tbody id="model-tbl-body"><tr>
+  <td class="mono">claude-sonnet-4-6</td>
+  <td class="num">15</td><td class="num">9493</td>
+  <td class="num">191.3M</td><td class="num">22.3M</td>
+  <td class="num">39.1M</td><td class="num">10.6M</td>
+  <td class="num">16.2%</td>
+</tr><tr>
+  <td class="mono">claude-opus-4-7</td>
+  <td class="num">8</td><td class="num">2746</td>
+  <td class="num">121.3M</td><td class="num">14.3M</td>
+  <td class="num">14.3M</td><td class="num">4.1M</td>
+  <td class="num">10.2%</td>
+</tr><tr>
+  <td class="mono">claude-haiku-4-5-20251001</td>
+  <td class="num">15</td><td class="num">2735</td>
+  <td class="num">21.9M</td><td class="num">2.5M</td>
+  <td class="num">10.2M</td><td class="num">1.1M</td>
+  <td class="num">30.8%</td>
+</tr></tbody>
+  </table></div>
+</div>
+  <div class="panel" id="p-win-tbl">
+  <div class="panel-head" onclick="togglePanel('p-win-tbl')">5-hour billing windows — last 7 days <span class="chv">&#9660;</span></div>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by user or status…" oninput="filterTable(this,'win-tbl-body')"></div>
+  <div class="tbl-scroll"><table>
+    <thead><tr>
+      <th>User</th><th>Window start</th><th>Window end</th>
+      <th>Input</th><th>Output</th><th>Cache reads</th><th>Cache writes</th>
+      <th>Turns</th><th>Sessions</th><th>Status</th>
+    </tr></thead>
+    <tbody id="win-tbl-body"><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:00:00+00:00">2026-05-18T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T09:00:00+00:00">2026-05-18T09:00</span></td>
+  <td class="num">1.1M</td><td class="num">161k</td>
+  <td class="num">227k</td><td class="num">26k</td>
+  <td class="num">38</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:00:00+00:00">2026-05-18T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T09:00:00+00:00">2026-05-18T09:00</span></td>
+  <td class="num">1.3M</td><td class="num">153k</td>
+  <td class="num">150k</td><td class="num">19k</td>
+  <td class="num">33</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:00:00+00:00">2026-05-18T02:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:00:00+00:00">2026-05-18T07:00</span></td>
+  <td class="num">562k</td><td class="num">68k</td>
+  <td class="num">217k</td><td class="num">42k</td>
+  <td class="num">45</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T01:00:00+00:00">2026-05-18T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T06:00:00+00:00">2026-05-18T06:00</span></td>
+  <td class="num">77k</td><td class="num">9k</td>
+  <td class="num">30k</td><td class="num">22k</td>
+  <td class="num">14</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:00:00+00:00">2026-05-18T02:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:00:00+00:00">2026-05-18T07:00</span></td>
+  <td class="num">1.0M</td><td class="num">113k</td>
+  <td class="num">140k</td><td class="num">30k</td>
+  <td class="num">27</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:00:00+00:00">2026-05-18T05:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T10:00:00+00:00">2026-05-18T10:00</span></td>
+  <td class="num">4k</td><td class="num">378</td>
+  <td class="num">1k</td><td class="num">345</td>
+  <td class="num">1</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T00:00:00+00:00">2026-05-18T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:00:00+00:00">2026-05-18T05:00</span></td>
+  <td class="num">55k</td><td class="num">5k</td>
+  <td class="num">11k</td><td class="num">13k</td>
+  <td class="num">10</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T01:00:00+00:00">2026-05-18T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T06:00:00+00:00">2026-05-18T06:00</span></td>
+  <td class="num">269k</td><td class="num">27k</td>
+  <td class="num">76k</td><td class="num">25k</td>
+  <td class="num">20</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T00:00:00+00:00">2026-05-18T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:00:00+00:00">2026-05-18T05:00</span></td>
+  <td class="num">138k</td><td class="num">13k</td>
+  <td class="num">32k</td><td class="num">25k</td>
+  <td class="num">22</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T23:00:00+00:00">2026-05-17T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:00:00+00:00">2026-05-18T04:00</span></td>
+  <td class="num">1.6M</td><td class="num">158k</td>
+  <td class="num">232k</td><td class="num">51k</td>
+  <td class="num">47</td><td class="num">4</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T23:00:00+00:00">2026-05-17T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:00:00+00:00">2026-05-18T04:00</span></td>
+  <td class="num">2.3M</td><td class="num">252k</td>
+  <td class="num">337k</td><td class="num">59k</td>
+  <td class="num">65</td><td class="num">4</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>stephanie.garcia@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:00:00+00:00">2026-05-18T02:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:00:00+00:00">2026-05-18T07:00</span></td>
+  <td class="num">16k</td><td class="num">1k</td>
+  <td class="num">6k</td><td class="num">11k</td>
+  <td class="num">6</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T23:00:00+00:00">2026-05-17T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:00:00+00:00">2026-05-18T04:00</span></td>
+  <td class="num">293k</td><td class="num">41k</td>
+  <td class="num">139k</td><td class="num">42k</td>
+  <td class="num">27</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T01:00:00+00:00">2026-05-18T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T06:00:00+00:00">2026-05-18T06:00</span></td>
+  <td class="num">188k</td><td class="num">29k</td>
+  <td class="num">76k</td><td class="num">27k</td>
+  <td class="num">17</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>brian.jones@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:00:00+00:00">2026-05-18T02:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:00:00+00:00">2026-05-18T07:00</span></td>
+  <td class="num">8k</td><td class="num">983</td>
+  <td class="num">2k</td><td class="num">6k</td>
+  <td class="num">5</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:00:00+00:00">2026-05-18T02:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:00:00+00:00">2026-05-18T07:00</span></td>
+  <td class="num">67k</td><td class="num">8k</td>
+  <td class="num">35k</td><td class="num">15k</td>
+  <td class="num">10</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T00:00:00+00:00">2026-05-18T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:00:00+00:00">2026-05-18T05:00</span></td>
+  <td class="num">257k</td><td class="num">31k</td>
+  <td class="num">101k</td><td class="num">30k</td>
+  <td class="num">21</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-18T01:00:00+00:00">2026-05-18T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T06:00:00+00:00">2026-05-18T06:00</span></td>
+  <td class="num">21k</td><td class="num">3k</td>
+  <td class="num">3k</td><td class="num">5k</td>
+  <td class="num">4</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T06:00:00+00:00">2026-05-17T06:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T11:00:00+00:00">2026-05-17T11:00</span></td>
+  <td class="num">540k</td><td class="num">66k</td>
+  <td class="num">64k</td><td class="num">5k</td>
+  <td class="num">16</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T01:00:00+00:00">2026-05-17T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T06:00:00+00:00">2026-05-17T06:00</span></td>
+  <td class="num">1.1M</td><td class="num">164k</td>
+  <td class="num">213k</td><td class="num">42k</td>
+  <td class="num">39</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T04:00:00+00:00">2026-05-17T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T09:00:00+00:00">2026-05-17T09:00</span></td>
+  <td class="num">81k</td><td class="num">8k</td>
+  <td class="num">61k</td><td class="num">2k</td>
+  <td class="num">7</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T03:00:00+00:00">2026-05-17T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T08:00:00+00:00">2026-05-17T08:00</span></td>
+  <td class="num">470k</td><td class="num">61k</td>
+  <td class="num">92k</td><td class="num">4k</td>
+  <td class="num">13</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T02:00:00+00:00">2026-05-17T02:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T07:00:00+00:00">2026-05-17T07:00</span></td>
+  <td class="num">154k</td><td class="num">19k</td>
+  <td class="num">41k</td><td class="num">11k</td>
+  <td class="num">14</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-16T23:00:00+00:00">2026-05-16T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T04:00:00+00:00">2026-05-17T04:00</span></td>
+  <td class="num">265k</td><td class="num">35k</td>
+  <td class="num">122k</td><td class="num">31k</td>
+  <td class="num">25</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-16T22:00:00+00:00">2026-05-16T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T03:00:00+00:00">2026-05-17T03:00</span></td>
+  <td class="num">894k</td><td class="num">106k</td>
+  <td class="num">111k</td><td class="num">24k</td>
+  <td class="num">26</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T00:00:00+00:00">2026-05-17T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T05:00:00+00:00">2026-05-17T05:00</span></td>
+  <td class="num">124k</td><td class="num">18k</td>
+  <td class="num">32k</td><td class="num">11k</td>
+  <td class="num">10</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-17T00:00:00+00:00">2026-05-17T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T05:00:00+00:00">2026-05-17T05:00</span></td>
+  <td class="num">45k</td><td class="num">8k</td>
+  <td class="num">18k</td><td class="num">12k</td>
+  <td class="num">8</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-16T23:00:00+00:00">2026-05-16T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T04:00:00+00:00">2026-05-17T04:00</span></td>
+  <td class="num">650k</td><td class="num">72k</td>
+  <td class="num">121k</td><td class="num">17k</td>
+  <td class="num">17</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-16T23:00:00+00:00">2026-05-16T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T04:00:00+00:00">2026-05-17T04:00</span></td>
+  <td class="num">163k</td><td class="num">20k</td>
+  <td class="num">61k</td><td class="num">14k</td>
+  <td class="num">14</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>stephanie.garcia@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-16T23:00:00+00:00">2026-05-16T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T04:00:00+00:00">2026-05-17T04:00</span></td>
+  <td class="num">19k</td><td class="num">2k</td>
+  <td class="num">6k</td><td class="num">10k</td>
+  <td class="num">7</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-16T22:00:00+00:00">2026-05-16T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T03:00:00+00:00">2026-05-17T03:00</span></td>
+  <td class="num">64k</td><td class="num">9k</td>
+  <td class="num">18k</td><td class="num">10k</td>
+  <td class="num">6</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-16T04:00:00+00:00">2026-05-16T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T09:00:00+00:00">2026-05-16T09:00</span></td>
+  <td class="num">461k</td><td class="num">44k</td>
+  <td class="num">57k</td><td class="num">12k</td>
+  <td class="num">14</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T23:00:00+00:00">2026-05-15T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T04:00:00+00:00">2026-05-16T04:00</span></td>
+  <td class="num">144k</td><td class="num">18k</td>
+  <td class="num">30k</td><td class="num">25k</td>
+  <td class="num">22</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-16T00:00:00+00:00">2026-05-16T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T05:00:00+00:00">2026-05-16T05:00</span></td>
+  <td class="num">196k</td><td class="num">17k</td>
+  <td class="num">70k</td><td class="num">14k</td>
+  <td class="num">17</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T22:00:00+00:00">2026-05-15T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T03:00:00+00:00">2026-05-16T03:00</span></td>
+  <td class="num">750k</td><td class="num">66k</td>
+  <td class="num">91k</td><td class="num">26k</td>
+  <td class="num">18</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T23:00:00+00:00">2026-05-15T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T04:00:00+00:00">2026-05-16T04:00</span></td>
+  <td class="num">738k</td><td class="num">82k</td>
+  <td class="num">95k</td><td class="num">14k</td>
+  <td class="num">22</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T22:00:00+00:00">2026-05-15T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T03:00:00+00:00">2026-05-16T03:00</span></td>
+  <td class="num">1.2M</td><td class="num">146k</td>
+  <td class="num">189k</td><td class="num">28k</td>
+  <td class="num">35</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T23:00:00+00:00">2026-05-15T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T04:00:00+00:00">2026-05-16T04:00</span></td>
+  <td class="num">243k</td><td class="num">23k</td>
+  <td class="num">63k</td><td class="num">12k</td>
+  <td class="num">17</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T23:00:00+00:00">2026-05-15T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T04:00:00+00:00">2026-05-16T04:00</span></td>
+  <td class="num">23k</td><td class="num">4k</td>
+  <td class="num">7k</td><td class="num">8k</td>
+  <td class="num">5</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T22:00:00+00:00">2026-05-15T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T03:00:00+00:00">2026-05-16T03:00</span></td>
+  <td class="num">125k</td><td class="num">12k</td>
+  <td class="num">33k</td><td class="num">15k</td>
+  <td class="num">7</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T22:00:00+00:00">2026-05-15T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T03:00:00+00:00">2026-05-16T03:00</span></td>
+  <td class="num">169k</td><td class="num">15k</td>
+  <td class="num">60k</td><td class="num">16k</td>
+  <td class="num">11</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T22:00:00+00:00">2026-05-15T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T03:00:00+00:00">2026-05-16T03:00</span></td>
+  <td class="num">21k</td><td class="num">4k</td>
+  <td class="num">8k</td><td class="num">11k</td>
+  <td class="num">4</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T08:00:00+00:00">2026-05-15T08:00</span></td>
+  <td class="num">842k</td><td class="num">109k</td>
+  <td class="num">97k</td><td class="num">15k</td>
+  <td class="num">27</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T08:00:00+00:00">2026-05-15T08:00</span></td>
+  <td class="num">234k</td><td class="num">26k</td>
+  <td class="num">101k</td><td class="num">18k</td>
+  <td class="num">19</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T08:00:00+00:00">2026-05-15T08:00</span></td>
+  <td class="num">985k</td><td class="num">117k</td>
+  <td class="num">165k</td><td class="num">18k</td>
+  <td class="num">31</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T06:00:00+00:00">2026-05-15T06:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T11:00:00+00:00">2026-05-15T11:00</span></td>
+  <td class="num">4k</td><td class="num">379</td>
+  <td class="num">3k</td><td class="num">103</td>
+  <td class="num">1</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T01:00:00+00:00">2026-05-15T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T06:00:00+00:00">2026-05-15T06:00</span></td>
+  <td class="num">331k</td><td class="num">38k</td>
+  <td class="num">87k</td><td class="num">24k</td>
+  <td class="num">27</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T08:00:00+00:00">2026-05-15T08:00</span></td>
+  <td class="num">234k</td><td class="num">27k</td>
+  <td class="num">39k</td><td class="num">10k</td>
+  <td class="num">18</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T01:00:00+00:00">2026-05-15T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T06:00:00+00:00">2026-05-15T06:00</span></td>
+  <td class="num">53k</td><td class="num">6k</td>
+  <td class="num">17k</td><td class="num">15k</td>
+  <td class="num">12</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T22:00:00+00:00">2026-05-14T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="num">927k</td><td class="num">101k</td>
+  <td class="num">162k</td><td class="num">41k</td>
+  <td class="num">25</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T22:00:00+00:00">2026-05-14T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="num">1.2M</td><td class="num">147k</td>
+  <td class="num">127k</td><td class="num">30k</td>
+  <td class="num">35</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T22:00:00+00:00">2026-05-14T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="num">223k</td><td class="num">30k</td>
+  <td class="num">93k</td><td class="num">27k</td>
+  <td class="num">21</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T00:00:00+00:00">2026-05-15T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T05:00:00+00:00">2026-05-15T05:00</span></td>
+  <td class="num">763k</td><td class="num">101k</td>
+  <td class="num">81k</td><td class="num">22k</td>
+  <td class="num">23</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T22:00:00+00:00">2026-05-14T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="num">418k</td><td class="num">49k</td>
+  <td class="num">103k</td><td class="num">30k</td>
+  <td class="num">39</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T22:00:00+00:00">2026-05-14T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="num">367k</td><td class="num">35k</td>
+  <td class="num">89k</td><td class="num">25k</td>
+  <td class="num">25</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>stephanie.garcia@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T23:00:00+00:00">2026-05-14T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T04:00:00+00:00">2026-05-15T04:00</span></td>
+  <td class="num">26k</td><td class="num">4k</td>
+  <td class="num">5k</td><td class="num">16k</td>
+  <td class="num">10</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T23:00:00+00:00">2026-05-14T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T04:00:00+00:00">2026-05-15T04:00</span></td>
+  <td class="num">160k</td><td class="num">17k</td>
+  <td class="num">49k</td><td class="num">28k</td>
+  <td class="num">24</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T23:00:00+00:00">2026-05-14T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T04:00:00+00:00">2026-05-15T04:00</span></td>
+  <td class="num">118k</td><td class="num">13k</td>
+  <td class="num">17k</td><td class="num">13k</td>
+  <td class="num">17</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T00:00:00+00:00">2026-05-15T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T05:00:00+00:00">2026-05-15T05:00</span></td>
+  <td class="num">230k</td><td class="num">26k</td>
+  <td class="num">74k</td><td class="num">26k</td>
+  <td class="num">19</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T22:00:00+00:00">2026-05-14T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="num">56k</td><td class="num">6k</td>
+  <td class="num">20k</td><td class="num">20k</td>
+  <td class="num">9</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>brian.jones@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-15T00:00:00+00:00">2026-05-15T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T05:00:00+00:00">2026-05-15T05:00</span></td>
+  <td class="num">9k</td><td class="num">1k</td>
+  <td class="num">3k</td><td class="num">10k</td>
+  <td class="num">3</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T22:00:00+00:00">2026-05-14T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-15T03:00:00+00:00">2026-05-15T03:00</span></td>
+  <td class="num">70k</td><td class="num">8k</td>
+  <td class="num">9k</td><td class="num">6k</td>
+  <td class="num">10</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T08:00:00+00:00">2026-05-14T08:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T13:00:00+00:00">2026-05-14T13:00</span></td>
+  <td class="num">40k</td><td class="num">2k</td>
+  <td class="num">6k</td><td class="num">48</td>
+  <td class="num">1</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T03:00:00+00:00">2026-05-14T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T08:00:00+00:00">2026-05-14T08:00</span></td>
+  <td class="num">1.6M</td><td class="num">183k</td>
+  <td class="num">217k</td><td class="num">31k</td>
+  <td class="num">41</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T04:00:00+00:00">2026-05-14T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T09:00:00+00:00">2026-05-14T09:00</span></td>
+  <td class="num">375k</td><td class="num">31k</td>
+  <td class="num">64k</td><td class="num">14k</td>
+  <td class="num">11</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T04:00:00+00:00">2026-05-14T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T09:00:00+00:00">2026-05-14T09:00</span></td>
+  <td class="num">657k</td><td class="num">76k</td>
+  <td class="num">148k</td><td class="num">18k</td>
+  <td class="num">22</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T04:00:00+00:00">2026-05-14T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T09:00:00+00:00">2026-05-14T09:00</span></td>
+  <td class="num">134k</td><td class="num">13k</td>
+  <td class="num">22k</td><td class="num">6k</td>
+  <td class="num">12</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T01:00:00+00:00">2026-05-14T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T06:00:00+00:00">2026-05-14T06:00</span></td>
+  <td class="num">42k</td><td class="num">6k</td>
+  <td class="num">14k</td><td class="num">15k</td>
+  <td class="num">9</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T04:00:00+00:00">2026-05-14T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T09:00:00+00:00">2026-05-14T09:00</span></td>
+  <td class="num">34k</td><td class="num">4k</td>
+  <td class="num">13k</td><td class="num">10k</td>
+  <td class="num">6</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T03:00:00+00:00">2026-05-14T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T08:00:00+00:00">2026-05-14T08:00</span></td>
+  <td class="num">52k</td><td class="num">6k</td>
+  <td class="num">10k</td><td class="num">8k</td>
+  <td class="num">7</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T00:00:00+00:00">2026-05-14T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T05:00:00+00:00">2026-05-14T05:00</span></td>
+  <td class="num">306k</td><td class="num">42k</td>
+  <td class="num">115k</td><td class="num">37k</td>
+  <td class="num">27</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T23:00:00+00:00">2026-05-13T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T04:00:00+00:00">2026-05-14T04:00</span></td>
+  <td class="num">1.4M</td><td class="num">151k</td>
+  <td class="num">206k</td><td class="num">44k</td>
+  <td class="num">37</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T23:00:00+00:00">2026-05-13T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T04:00:00+00:00">2026-05-14T04:00</span></td>
+  <td class="num">208k</td><td class="num">25k</td>
+  <td class="num">60k</td><td class="num">31k</td>
+  <td class="num">16</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T03:00:00+00:00">2026-05-14T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T08:00:00+00:00">2026-05-14T08:00</span></td>
+  <td class="num">11k</td><td class="num">2k</td>
+  <td class="num">3k</td><td class="num">189</td>
+  <td class="num">1</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T22:00:00+00:00">2026-05-13T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T03:00:00+00:00">2026-05-14T03:00</span></td>
+  <td class="num">1.1M</td><td class="num">134k</td>
+  <td class="num">185k</td><td class="num">35k</td>
+  <td class="num">29</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T22:00:00+00:00">2026-05-13T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T03:00:00+00:00">2026-05-14T03:00</span></td>
+  <td class="num">251k</td><td class="num">33k</td>
+  <td class="num">84k</td><td class="num">24k</td>
+  <td class="num">23</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T23:00:00+00:00">2026-05-13T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T04:00:00+00:00">2026-05-14T04:00</span></td>
+  <td class="num">537k</td><td class="num">58k</td>
+  <td class="num">144k</td><td class="num">34k</td>
+  <td class="num">44</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T22:00:00+00:00">2026-05-13T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T03:00:00+00:00">2026-05-14T03:00</span></td>
+  <td class="num">1.6M</td><td class="num">165k</td>
+  <td class="num">261k</td><td class="num">43k</td>
+  <td class="num">48</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T01:00:00+00:00">2026-05-14T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T06:00:00+00:00">2026-05-14T06:00</span></td>
+  <td class="num">23k</td><td class="num">5k</td>
+  <td class="num">2k</td><td class="num">4k</td>
+  <td class="num">5</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T00:00:00+00:00">2026-05-14T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T05:00:00+00:00">2026-05-14T05:00</span></td>
+  <td class="num">34k</td><td class="num">5k</td>
+  <td class="num">16k</td><td class="num">9k</td>
+  <td class="num">8</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-14T00:00:00+00:00">2026-05-14T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-14T05:00:00+00:00">2026-05-14T05:00</span></td>
+  <td class="num">132k</td><td class="num">18k</td>
+  <td class="num">16k</td><td class="num">6k</td>
+  <td class="num">14</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T06:00:00+00:00">2026-05-13T06:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T11:00:00+00:00">2026-05-13T11:00</span></td>
+  <td class="num">20k</td><td class="num">4k</td>
+  <td class="num">3k</td><td class="num">585</td>
+  <td class="num">2</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T01:00:00+00:00">2026-05-13T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T06:00:00+00:00">2026-05-13T06:00</span></td>
+  <td class="num">455k</td><td class="num">52k</td>
+  <td class="num">115k</td><td class="num">35k</td>
+  <td class="num">38</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T09:00:00+00:00">2026-05-13T09:00</span></td>
+  <td class="num">472k</td><td class="num">65k</td>
+  <td class="num">52k</td><td class="num">9k</td>
+  <td class="num">16</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T05:00:00+00:00">2026-05-13T05:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T10:00:00+00:00">2026-05-13T10:00</span></td>
+  <td class="num">35k</td><td class="num">3k</td>
+  <td class="num">19k</td><td class="num">767</td>
+  <td class="num">4</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T03:00:00+00:00">2026-05-13T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T08:00:00+00:00">2026-05-13T08:00</span></td>
+  <td class="num">36k</td><td class="num">6k</td>
+  <td class="num">17k</td><td class="num">10k</td>
+  <td class="num">8</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T00:00:00+00:00">2026-05-13T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T05:00:00+00:00">2026-05-13T05:00</span></td>
+  <td class="num">169k</td><td class="num">21k</td>
+  <td class="num">48k</td><td class="num">20k</td>
+  <td class="num">14</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T09:00:00+00:00">2026-05-13T09:00</span></td>
+  <td class="num">70k</td><td class="num">7k</td>
+  <td class="num">15k</td><td class="num">10k</td>
+  <td class="num">9</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>stephanie.garcia@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T03:00:00+00:00">2026-05-13T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T08:00:00+00:00">2026-05-13T08:00</span></td>
+  <td class="num">15k</td><td class="num">1k</td>
+  <td class="num">2k</td><td class="num">6k</td>
+  <td class="num">6</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T09:00:00+00:00">2026-05-13T09:00</span></td>
+  <td class="num">3k</td><td class="num">626</td>
+  <td class="num">7k</td><td class="num">173</td>
+  <td class="num">1</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T09:00:00+00:00">2026-05-13T09:00</span></td>
+  <td class="num">79k</td><td class="num">9k</td>
+  <td class="num">13k</td><td class="num">227</td>
+  <td class="num">2</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T01:00:00+00:00">2026-05-13T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T06:00:00+00:00">2026-05-13T06:00</span></td>
+  <td class="num">55k</td><td class="num">6k</td>
+  <td class="num">6k</td><td class="num">10k</td>
+  <td class="num">8</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T23:00:00+00:00">2026-05-12T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="num">2.0M</td><td class="num">241k</td>
+  <td class="num">231k</td><td class="num">42k</td>
+  <td class="num">54</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T23:00:00+00:00">2026-05-12T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="num">347k</td><td class="num">37k</td>
+  <td class="num">115k</td><td class="num">37k</td>
+  <td class="num">28</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T01:00:00+00:00">2026-05-13T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T06:00:00+00:00">2026-05-13T06:00</span></td>
+  <td class="num">593k</td><td class="num">84k</td>
+  <td class="num">95k</td><td class="num">26k</td>
+  <td class="num">19</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>brian.jones@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T03:00:00+00:00">2026-05-13T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T08:00:00+00:00">2026-05-13T08:00</span></td>
+  <td class="num">12k</td><td class="num">2k</td>
+  <td class="num">4k</td><td class="num">8k</td>
+  <td class="num">5</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T23:00:00+00:00">2026-05-12T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="num">1.3M</td><td class="num">151k</td>
+  <td class="num">211k</td><td class="num">47k</td>
+  <td class="num">37</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T22:00:00+00:00">2026-05-12T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T03:00:00+00:00">2026-05-13T03:00</span></td>
+  <td class="num">76k</td><td class="num">8k</td>
+  <td class="num">21k</td><td class="num">18k</td>
+  <td class="num">12</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T00:00:00+00:00">2026-05-13T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T05:00:00+00:00">2026-05-13T05:00</span></td>
+  <td class="num">138k</td><td class="num">15k</td>
+  <td class="num">66k</td><td class="num">27k</td>
+  <td class="num">22</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-13T01:00:00+00:00">2026-05-13T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T06:00:00+00:00">2026-05-13T06:00</span></td>
+  <td class="num">40k</td><td class="num">4k</td>
+  <td class="num">17k</td><td class="num">10k</td>
+  <td class="num">8</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T23:00:00+00:00">2026-05-12T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="num">65k</td><td class="num">8k</td>
+  <td class="num">9k</td><td class="num">12k</td>
+  <td class="num">12</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T23:00:00+00:00">2026-05-12T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="num">111k</td><td class="num">10k</td>
+  <td class="num">19k</td><td class="num">13k</td>
+  <td class="num">11</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T23:00:00+00:00">2026-05-12T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-13T04:00:00+00:00">2026-05-13T04:00</span></td>
+  <td class="num">162k</td><td class="num">20k</td>
+  <td class="num">61k</td><td class="num">23k</td>
+  <td class="num">14</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T08:00:00+00:00">2026-05-12T08:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T13:00:00+00:00">2026-05-12T13:00</span></td>
+  <td class="num">70k</td><td class="num">5k</td>
+  <td class="num">10k</td><td class="num">298</td>
+  <td class="num">2</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T03:00:00+00:00">2026-05-12T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T08:00:00+00:00">2026-05-12T08:00</span></td>
+  <td class="num">1.7M</td><td class="num">182k</td>
+  <td class="num">302k</td><td class="num">38k</td>
+  <td class="num">50</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T03:00:00+00:00">2026-05-12T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T08:00:00+00:00">2026-05-12T08:00</span></td>
+  <td class="num">1.3M</td><td class="num">147k</td>
+  <td class="num">283k</td><td class="num">28k</td>
+  <td class="num">42</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T06:00:00+00:00">2026-05-12T06:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T11:00:00+00:00">2026-05-12T11:00</span></td>
+  <td class="num">55k</td><td class="num">10k</td>
+  <td class="num">24k</td><td class="num">2k</td>
+  <td class="num">7</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T04:00:00+00:00">2026-05-12T04:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T09:00:00+00:00">2026-05-12T09:00</span></td>
+  <td class="num">778k</td><td class="num">83k</td>
+  <td class="num">67k</td><td class="num">10k</td>
+  <td class="num">25</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T01:00:00+00:00">2026-05-12T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T06:00:00+00:00">2026-05-12T06:00</span></td>
+  <td class="num">409k</td><td class="num">52k</td>
+  <td class="num">141k</td><td class="num">37k</td>
+  <td class="num">35</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T03:00:00+00:00">2026-05-12T03:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T08:00:00+00:00">2026-05-12T08:00</span></td>
+  <td class="num">40k</td><td class="num">5k</td>
+  <td class="num">16k</td><td class="num">14k</td>
+  <td class="num">6</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T00:00:00+00:00">2026-05-12T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T05:00:00+00:00">2026-05-12T05:00</span></td>
+  <td class="num">436k</td><td class="num">41k</td>
+  <td class="num">99k</td><td class="num">27k</td>
+  <td class="num">33</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T23:00:00+00:00">2026-05-11T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T04:00:00+00:00">2026-05-12T04:00</span></td>
+  <td class="num">968k</td><td class="num">94k</td>
+  <td class="num">166k</td><td class="num">29k</td>
+  <td class="num">31</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T23:00:00+00:00">2026-05-11T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T04:00:00+00:00">2026-05-12T04:00</span></td>
+  <td class="num">113k</td><td class="num">17k</td>
+  <td class="num">46k</td><td class="num">34k</td>
+  <td class="num">21</td><td class="num">3</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T23:00:00+00:00">2026-05-11T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T04:00:00+00:00">2026-05-12T04:00</span></td>
+  <td class="num">74k</td><td class="num">9k</td>
+  <td class="num">30k</td><td class="num">17k</td>
+  <td class="num">16</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T02:00:00+00:00">2026-05-12T02:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T07:00:00+00:00">2026-05-12T07:00</span></td>
+  <td class="num">65k</td><td class="num">10k</td>
+  <td class="num">15k</td><td class="num">8k</td>
+  <td class="num">10</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T23:00:00+00:00">2026-05-11T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T04:00:00+00:00">2026-05-12T04:00</span></td>
+  <td class="num">66k</td><td class="num">6k</td>
+  <td class="num">24k</td><td class="num">24k</td>
+  <td class="num">9</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T01:00:00+00:00">2026-05-12T01:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T06:00:00+00:00">2026-05-12T06:00</span></td>
+  <td class="num">142k</td><td class="num">17k</td>
+  <td class="num">27k</td><td class="num">16k</td>
+  <td class="num">12</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T22:00:00+00:00">2026-05-11T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T03:00:00+00:00">2026-05-12T03:00</span></td>
+  <td class="num">1.9M</td><td class="num">191k</td>
+  <td class="num">218k</td><td class="num">47k</td>
+  <td class="num">50</td><td class="num">4</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T22:00:00+00:00">2026-05-11T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T03:00:00+00:00">2026-05-12T03:00</span></td>
+  <td class="num">177k</td><td class="num">28k</td>
+  <td class="num">53k</td><td class="num">18k</td>
+  <td class="num">19</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T22:00:00+00:00">2026-05-11T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T03:00:00+00:00">2026-05-12T03:00</span></td>
+  <td class="num">942k</td><td class="num">121k</td>
+  <td class="num">174k</td><td class="num">29k</td>
+  <td class="num">32</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T22:00:00+00:00">2026-05-11T22:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T03:00:00+00:00">2026-05-12T03:00</span></td>
+  <td class="num">84k</td><td class="num">6k</td>
+  <td class="num">32k</td><td class="num">24k</td>
+  <td class="num">13</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>brian.jones@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T00:00:00+00:00">2026-05-12T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T05:00:00+00:00">2026-05-12T05:00</span></td>
+  <td class="num">6k</td><td class="num">2k</td>
+  <td class="num">3k</td><td class="num">9k</td>
+  <td class="num">4</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-12T00:00:00+00:00">2026-05-12T00:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T05:00:00+00:00">2026-05-12T05:00</span></td>
+  <td class="num">60k</td><td class="num">9k</td>
+  <td class="num">13k</td><td class="num">9k</td>
+  <td class="num">5</td><td class="num">1</td>
+  <td><span class="badge">Closed</span></td>
+</tr><tr>
+  <td>stephanie.garcia@example.com</td>
+  <td class="mono sm"><span data-utc="2026-05-11T23:00:00+00:00">2026-05-11T23:00</span></td>
+  <td class="mono sm"><span data-utc="2026-05-12T04:00:00+00:00">2026-05-12T04:00</span></td>
+  <td class="num">12k</td><td class="num">1k</td>
+  <td class="num">3k</td><td class="num">14k</td>
+  <td class="num">6</td><td class="num">2</td>
+  <td><span class="badge">Closed</span></td>
+</tr></tbody>
+  </table></div>
+</div>
+  <div class="panel" id="p-provision">
+  <div class="panel-head" onclick="togglePanel('p-provision')">User provisioning <span class="chv">&#9660;</span></div>
+  
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by email or division…" oninput="filterTable(this,'prov-body')"></div>
+  <div class="tbl-scroll"><table>
+    <thead><tr>
+      <th>Email</th><th>Division</th><th>Status</th>
+      <th>Created</th><th>Expires</th><th>Last active</th><th>Actions</th>
+    </tr></thead>
+    <tbody id="prov-body"><tr>
+  <td>alex.chen@example.com</td>
+  <td class="sm">Engineering</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:07:45Z">2026-05-18 05:07</span></td>
+  <td> </td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="sm">Data Science</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:06:33Z">2026-05-18 05:06</span></td>
+  <td> </td>
+</tr><tr>
+  <td>brian.jones@example.com</td>
+  <td class="sm">IT</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:09:05Z">2026-05-18 03:09</span></td>
+  <td> </td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="sm">Research</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:06:48Z">2026-05-18 03:06</span></td>
+  <td> </td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="sm">Engineering</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:17:38Z">2026-05-18 03:17</span></td>
+  <td> </td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="sm">Engineering</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T06:44:38Z">2026-05-18 06:44</span></td>
+  <td> </td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="sm">Data Science</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:00:50Z">2026-05-18 07:00</span></td>
+  <td> </td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="sm">Engineering</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:02:50Z">2026-05-18 04:02</span></td>
+  <td> </td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="sm">Engineering</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T05:09:34Z">2026-05-18 05:09</span></td>
+  <td> </td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="sm">Research</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:56:54Z">2026-05-18 02:56</span></td>
+  <td> </td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="sm">Engineering</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:10:19Z">2026-05-18 03:10</span></td>
+  <td> </td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="sm">Research</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:26:05Z">2026-05-18 04:26</span></td>
+  <td> </td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="sm">Engineering</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T07:17:42Z">2026-05-18 07:17</span></td>
+  <td> </td>
+</tr><tr>
+  <td>stephanie.garcia@example.com</td>
+  <td class="sm">Research</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:25:09Z">2026-05-18 03:25</span></td>
+  <td> </td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="sm">IT</td>
+  <td><span class="badge ok">Active</span></td>
+  <td class="mono sm"><span data-utc="2026-03-29T11:27:22Z">2026-03-29 11:27</span></td>
+  <td class="mono sm"><span data-utc="2027-05-18T11:27:22Z">2027-05-18 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:04:57Z">2026-05-18 02:04</span></td>
+  <td> </td>
+</tr></tbody>
+  </table></div>
+</div>
+  <div class="panel" id="p-keys">
+  <div class="panel-head" onclick="togglePanel('p-keys')">Device keys <span class="chv">&#9660;</span></div>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by email or device…" oninput="filterTable(this,'keys-body')"></div>
+  <div class="tbl-scroll"><table>
+    <thead><tr>
+      <th>Email</th><th>Device</th><th>Key (short)</th>
+      <th>Registered</th><th>Last seen</th><th>Status</th>
+    </tr></thead>
+    <tbody id="keys-body"><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm">alex-laptop</td>
+  <td class="mono sm">973e8eec…d65c373a</td>
+  <td class="mono sm"><span data-utc="2026-04-05T11:27:22Z">2026-04-05 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T04:27:22Z">2026-05-18 04:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>alex.chen@example.com</td>
+  <td class="mono sm">alex-desktop</td>
+  <td class="mono sm">5b0f09ae…a7a78ed7</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T12:27:22Z">2026-05-16 12:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm">amanda-laptop</td>
+  <td class="mono sm">a2008953…9f34d261</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T11:27:22Z">2026-05-17 11:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>amanda.white@example.com</td>
+  <td class="mono sm">amanda-desktop</td>
+  <td class="mono sm">8c170981…5bb8aa6e</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T17:27:22Z">2026-05-16 17:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>brian.jones@example.com</td>
+  <td class="mono sm">brian-laptop</td>
+  <td class="mono sm">a91857b6…60fd9c3a</td>
+  <td class="mono sm"><span data-utc="2026-04-05T11:27:22Z">2026-04-05 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T20:27:22Z">2026-05-17 20:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>chris.martin@example.com</td>
+  <td class="mono sm">chris-laptop</td>
+  <td class="mono sm">824f9b4c…fbb06dc4</td>
+  <td class="mono sm"><span data-utc="2026-04-04T11:27:22Z">2026-04-04 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T23:27:22Z">2026-05-16 23:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>david.kim@example.com</td>
+  <td class="mono sm">david-laptop</td>
+  <td class="mono sm">7831b386…a3a83446</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T08:27:22Z">2026-05-18 08:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">1626c6b7…84dc3e46</td>
+  <td class="mono sm"><span data-utc="2026-04-05T11:27:22Z">2026-04-05 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T19:27:22Z">2026-05-16 19:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-desktop</td>
+  <td class="mono sm">95490e28…52001309</td>
+  <td class="mono sm"><span data-utc="2026-04-05T11:27:22Z">2026-04-05 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T06:27:22Z">2026-05-18 06:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">34d1564f…b19de440</td>
+  <td class="mono sm"><span data-utc="2026-04-05T11:27:22Z">2026-04-05 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T09:27:22Z">2026-05-18 09:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>jennifer.lee@example.com</td>
+  <td class="mono sm">jennifer-laptop</td>
+  <td class="mono sm">eef4977f…afe0a9eb</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:27:22Z">2026-05-18 02:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>kevin.taylor@example.com</td>
+  <td class="mono sm">kevin-laptop</td>
+  <td class="mono sm">e46b2a92…b5189936</td>
+  <td class="mono sm"><span data-utc="2026-04-04T11:27:22Z">2026-04-04 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T03:27:22Z">2026-05-18 03:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm">lisa-laptop</td>
+  <td class="mono sm">a1d2c807…a57dd5e4</td>
+  <td class="mono sm"><span data-utc="2026-04-04T11:27:22Z">2026-04-04 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T17:27:22Z">2026-05-17 17:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>lisa.anderson@example.com</td>
+  <td class="mono sm">lisa-desktop</td>
+  <td class="mono sm">74ba31c3…6920dee7</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T11:27:22Z">2026-05-17 11:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>michael.park@example.com</td>
+  <td class="mono sm">michael-laptop</td>
+  <td class="mono sm">3a30d019…875ec2f7</td>
+  <td class="mono sm"><span data-utc="2026-04-05T11:27:22Z">2026-04-05 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T20:27:22Z">2026-05-17 20:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm">rachel-desktop</td>
+  <td class="mono sm">74cf3470…de81b99a</td>
+  <td class="mono sm"><span data-utc="2026-04-05T11:27:22Z">2026-04-05 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-18T02:27:22Z">2026-05-18 02:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>rachel.nguyen@example.com</td>
+  <td class="mono sm">rachel-laptop</td>
+  <td class="mono sm">74bd0022…f32b3ab1</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T20:27:22Z">2026-05-17 20:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">05bd04cb…768f8996</td>
+  <td class="mono sm"><span data-utc="2026-04-04T11:27:22Z">2026-04-04 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T11:27:22Z">2026-05-17 11:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-desktop</td>
+  <td class="mono sm">e4e5e8a7…39d98920</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T04:27:22Z">2026-05-17 04:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>stephanie.garcia@example.com</td>
+  <td class="mono sm">stephanie-laptop</td>
+  <td class="mono sm">4b1da47d…814c1662</td>
+  <td class="mono sm"><span data-utc="2026-04-05T11:27:22Z">2026-04-05 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-17T02:27:22Z">2026-05-17 02:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr><tr>
+  <td>thomas.brown@example.com</td>
+  <td class="mono sm">thomas-laptop</td>
+  <td class="mono sm">18a00e80…093a5392</td>
+  <td class="mono sm"><span data-utc="2026-04-03T11:27:22Z">2026-04-03 11:27</span></td>
+  <td class="mono sm"><span data-utc="2026-05-16T18:27:22Z">2026-05-16 18:27</span></td>
+  <td><span class="badge ok">Active</span> </td>
+</tr></tbody>
+  </table></div>
+</div>
+  <div class="panel" id="p-events">
+  <div class="panel-head" onclick="togglePanel('p-events')">Recent events — last 50 <span class="chv">&#9660;</span></div>
+  <table>
+    <thead><tr>
+      <th>Received</th><th>User</th><th>Device</th><th>Session</th><th>Turn</th>
+      <th>Model</th><th>Input</th><th>Output</th><th>Cache reads</th><th>Cache writes</th>
+    </tr></thead>
+    <tbody><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T07:17:42Z">2026-05-18 07:17</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">16</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">52k</td><td class="num">2k</td>
+  <td class="num">8k</td><td class="num">8</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T07:00:50Z">2026-05-18 07:00</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">15</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">18k</td><td class="num">7k</td>
+  <td class="num">5k</td><td class="num">162</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:59:50Z">2026-05-18 06:59</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">13</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">29k</td><td class="num">900</td>
+  <td class="num">4k</td><td class="num">435</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:44:38Z">2026-05-18 06:44</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">8</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">7k</td><td class="num">2k</td>
+  <td class="num">2k</td><td class="num">160</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:43:42Z">2026-05-18 06:43</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">13</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">45k</td><td class="num">2k</td>
+  <td class="num">6k</td><td class="num">43</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:41:38Z">2026-05-18 06:41</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">9</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">20k</td><td class="num">1k</td>
+  <td class="num">1k</td><td class="num">149</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:35:50Z">2026-05-18 06:35</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">16</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">54k</td><td class="num">4k</td>
+  <td class="num">6k</td><td class="num">306</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:35:42Z">2026-05-18 06:35</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">14</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">67k</td><td class="num">7k</td>
+  <td class="num">6k</td><td class="num">814</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:33:42Z">2026-05-18 06:33</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">17</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">35k</td><td class="num">5k</td>
+  <td class="num">8k</td><td class="num">169</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:31:38Z">2026-05-18 06:31</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">5</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">12k</td><td class="num">833</td>
+  <td class="num">2k</td><td class="num">341</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:27:50Z">2026-05-18 06:27</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">12</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">53k</td><td class="num">4k</td>
+  <td class="num">4k</td><td class="num">500</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:22:42Z">2026-05-18 06:22</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">19</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">55k</td><td class="num">8k</td>
+  <td class="num">6k</td><td class="num">570</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:21:42Z">2026-05-18 06:21</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">8</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">11k</td><td class="num">6k</td>
+  <td class="num">5k</td><td class="num">113</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:20:38Z">2026-05-18 06:20</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">4</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">20k</td><td class="num">2k</td>
+  <td class="num">2k</td><td class="num">338</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:20:38Z">2026-05-18 06:20</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">6</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">10k</td><td class="num">2k</td>
+  <td class="num">2k</td><td class="num">336</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:19:42Z">2026-05-18 06:19</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">9</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">47k</td><td class="num">6k</td>
+  <td class="num">7k</td><td class="num">299</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:19:42Z">2026-05-18 06:19</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">18</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">44k</td><td class="num">5k</td>
+  <td class="num">5k</td><td class="num">406</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:15:50Z">2026-05-18 06:15</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">10</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">69k</td><td class="num">10k</td>
+  <td class="num">5k</td><td class="num">66</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:11:50Z">2026-05-18 06:11</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">8</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">13k</td><td class="num">3k</td>
+  <td class="num">6k</td><td class="num">287</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:10:42Z">2026-05-18 06:10</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">15</td>
+  <td class="mono sm">claude-haiku-4-5-20251001</td>
+  <td class="num">13k</td><td class="num">769</td>
+  <td class="num">4k</td><td class="num">128</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:10:38Z">2026-05-18 06:10</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">2</td>
+  <td class="mono sm">claude-haiku-4-5-20251001</td>
+  <td class="num">5k</td><td class="num">925</td>
+  <td class="num">1k</td><td class="num">974</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:10:38Z">2026-05-18 06:10</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">7</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">17k</td><td class="num">2k</td>
+  <td class="num">2k</td><td class="num">18</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:09:50Z">2026-05-18 06:09</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">18</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">37k</td><td class="num">4k</td>
+  <td class="num">6k</td><td class="num">500</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:07:42Z">2026-05-18 06:07</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">6</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">30k</td><td class="num">5k</td>
+  <td class="num">7k</td><td class="num">79</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:06:50Z">2026-05-18 06:06</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">17</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">22k</td><td class="num">4k</td>
+  <td class="num">4k</td><td class="num">116</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:05:42Z">2026-05-18 06:05</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">10</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">37k</td><td class="num">5k</td>
+  <td class="num">6k</td><td class="num">1k</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:05:38Z">2026-05-18 06:05</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">3</td>
+  <td class="mono sm">claude-haiku-4-5-20251001</td>
+  <td class="num">8k</td><td class="num">295</td>
+  <td class="num">1k</td><td class="num">196</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:04:11Z">2026-05-18 06:04</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">1c9f7615</td>
+  <td class="num">21</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">29k</td><td class="num">4k</td>
+  <td class="num">3k</td><td class="num">480</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:03:50Z">2026-05-18 06:03</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">6</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">63k</td><td class="num">9k</td>
+  <td class="num">3k</td><td class="num">902</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:01:26Z">2026-05-18 06:01</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">f6a7eb63</td>
+  <td class="num">16</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">10k</td><td class="num">4k</td>
+  <td class="num">5k</td><td class="num">35</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T06:00:38Z">2026-05-18 06:00</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">1</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">12k</td><td class="num">2k</td>
+  <td class="num">1k</td><td class="num">2k</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:58:42Z">2026-05-18 05:58</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">11</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">15k</td><td class="num">3k</td>
+  <td class="num">6k</td><td class="num">198</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:56:38Z">2026-05-18 05:56</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">ec6a005e</td>
+  <td class="num">0</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">21k</td><td class="num">577</td>
+  <td class="num">0</td><td class="num">1k</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:55:50Z">2026-05-18 05:55</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">5</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">48k</td><td class="num">999</td>
+  <td class="num">4k</td><td class="num">398</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:51:13Z">2026-05-18 05:51</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">17a123e3</td>
+  <td class="num">16</td>
+  <td class="mono sm">claude-haiku-4-5-20251001</td>
+  <td class="num">4k</td><td class="num">928</td>
+  <td class="num">10k</td><td class="num">20</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:50:42Z">2026-05-18 05:50</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">5</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">18k</td><td class="num">8k</td>
+  <td class="num">9k</td><td class="num">653</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:49:42Z">2026-05-18 05:49</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">12</td>
+  <td class="mono sm">claude-haiku-4-5-20251001</td>
+  <td class="num">18k</td><td class="num">2k</td>
+  <td class="num">6k</td><td class="num">115</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:46:42Z">2026-05-18 05:46</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">7</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">30k</td><td class="num">837</td>
+  <td class="num">7k</td><td class="num">238</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:45:42Z">2026-05-18 05:45</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">4</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">21k</td><td class="num">2k</td>
+  <td class="num">9k</td><td class="num">490</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:43:50Z">2026-05-18 05:43</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">7</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">50k</td><td class="num">6k</td>
+  <td class="num">6k</td><td class="num">224</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:43:50Z">2026-05-18 05:43</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">14</td>
+  <td class="mono sm">claude-haiku-4-5-20251001</td>
+  <td class="num">13k</td><td class="num">2k</td>
+  <td class="num">4k</td><td class="num">111</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:41:26Z">2026-05-18 05:41</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">f6a7eb63</td>
+  <td class="num">18</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">29k</td><td class="num">5k</td>
+  <td class="num">6k</td><td class="num">325</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:40:42Z">2026-05-18 05:40</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">3</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">39k</td><td class="num">6k</td>
+  <td class="num">8k</td><td class="num">274</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:37:50Z">2026-05-18 05:37</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">11</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">33k</td><td class="num">792</td>
+  <td class="num">5k</td><td class="num">432</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:36:11Z">2026-05-18 05:36</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">1c9f7615</td>
+  <td class="num">20</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">28k</td><td class="num">5k</td>
+  <td class="num">3k</td><td class="num">997</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:35:50Z">2026-05-18 05:35</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">4</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">51k</td><td class="num">2k</td>
+  <td class="num">6k</td><td class="num">274</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:35:42Z">2026-05-18 05:35</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">2</td>
+  <td class="mono sm">claude-haiku-4-5-20251001</td>
+  <td class="num">5k</td><td class="num">2k</td>
+  <td class="num">4k</td><td class="num">2k</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:33:50Z">2026-05-18 05:33</span></td>
+  <td>james.wilson@example.com</td>
+  <td class="mono sm">james-laptop</td>
+  <td class="mono sm">30bd1e9e</td>
+  <td class="num">9</td>
+  <td class="mono sm">claude-opus-4-7</td>
+  <td class="num">50k</td><td class="num">8k</td>
+  <td class="num">5k</td><td class="num">486</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:30:42Z">2026-05-18 05:30</span></td>
+  <td>sarah.thompson@example.com</td>
+  <td class="mono sm">sarah-laptop</td>
+  <td class="mono sm">4e2b93ac</td>
+  <td class="num">1</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">35k</td><td class="num">1k</td>
+  <td class="num">7k</td><td class="num">5k</td>
+</tr><tr>
+  <td class="mono sm"><span data-utc="2026-05-18T05:30:13Z">2026-05-18 05:30</span></td>
+  <td>emily.rodriguez@example.com</td>
+  <td class="mono sm">emily-laptop</td>
+  <td class="mono sm">17a123e3</td>
+  <td class="num">15</td>
+  <td class="mono sm">claude-sonnet-4-6</td>
+  <td class="num">15k</td><td class="num">2k</td>
+  <td class="num">9k</td><td class="num">328</td>
+</tr></tbody>
+  </table>
+</div>
+</div>
+<script>
+document.querySelectorAll('[data-utc]').forEach(function(el){
+  var d=new Date(el.getAttribute('data-utc'));
+  if(!isNaN(d.getTime()))el.textContent=d.toLocaleString(undefined,{dateStyle:'short',timeStyle:'short'});
+});
+function filterTable(inp,tbodyId){
+  var q=inp.value.toLowerCase();
+  document.getElementById(tbodyId).querySelectorAll('tr').forEach(function(row){
+    row.style.display=row.textContent.toLowerCase().indexOf(q)>=0?'':'none';
+  });
+}
+function togglePanel(id){
+  var p=document.getElementById(id);
+  var c=p.classList.toggle('collapsed');
+  try{localStorage.setItem('ccflux_'+id,c?'1':'0');}catch(e){}
+}
+document.querySelectorAll('.panel[id]').forEach(function(p){
+  try{if(localStorage.getItem('ccflux_'+p.id)==='1')p.classList.add('collapsed');}catch(e){}
+});
+var arTimer=null,arLeft=0;
+function arSecs(){return Math.max(5,parseInt(document.getElementById('ar-inp').value,10)||60);}
+function arCdText(s){return s>0?'next in '+s+'s':'';}
+function toggleAutoRefresh(){
+  var btn=document.getElementById('ar-btn');if(!btn)return;
+  var on=!btn.classList.contains('ar-on');
+  btn.classList.toggle('ar-on',on);
+  try{localStorage.setItem('ccflux_ar',on?'1':'0');}catch(e){}
+  on?arStart():arStop();
+}
+function arStart(){
+  arStop();arLeft=arSecs();
+  document.getElementById('ar-cd').textContent=arCdText(arLeft);
+  arTimer=setInterval(function(){
+    arLeft--;
+    document.getElementById('ar-cd').textContent=arCdText(arLeft);
+    if(arLeft<=0){clearInterval(arTimer);location.reload();}
+  },1000);
+}
+function arStop(){
+  clearInterval(arTimer);arTimer=null;
+  var cd=document.getElementById('ar-cd');if(cd)cd.textContent='';
+}
+function onIntervalChange(){
+  try{localStorage.setItem('ccflux_ar_iv',document.getElementById('ar-inp').value);}catch(e){}
+  if(document.getElementById('ar-btn').classList.contains('ar-on'))arStart();
+}
+(function(){
+  var btn=document.getElementById('ar-btn');if(!btn)return;
+  try{
+    var iv=localStorage.getItem('ccflux_ar_iv');
+    if(iv){document.getElementById('ar-inp').value=iv;}
+    if(localStorage.getItem('ccflux_ar')==='1'){btn.classList.add('ar-on');arStart();}
+  }catch(e){}
+})();
+</script>
+</body>
+</html>
