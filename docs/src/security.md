@@ -122,4 +122,19 @@ Token comparisons in the receiver use `subtle::ConstantTimeEq` to prevent timing
 
 ### CSRF protection
 
-The device revoke endpoint (`POST /admin/device-keys/revoke`) includes a hidden `csrf_token` form field that is verified server-side with a constant-time comparison. Cross-origin form submissions cannot forge a valid CSRF token.
+All admin mutating endpoints require a hidden `csrf_token` form field verified server-side with a constant-time comparison. This covers device revoke, user provision, user revoke, and token reissue. Cross-origin form submissions cannot forge a valid CSRF token without knowing the `ADMIN_TOKEN`.
+
+### Input length limits
+
+The receiver enforces field length limits at the HTTP boundary before any database or cryptographic work:
+
+| Endpoint | Field | Limit |
+|---|---|---|
+| `POST /register-key` | `public_key` | 64 characters |
+| `POST /register-key` | `device_id` | 255 characters |
+| `POST /report` | `session_id` | 64 characters |
+| `POST /report` | `timestamp_utc`, `session_start_utc`, `plugin_version` | 64 characters each |
+| `POST /report` | model names in `models` map | 128 characters each |
+| `POST /report` | number of models in `models` map | 20 maximum |
+
+Requests exceeding any limit are rejected with `400 Bad Request` before signature verification runs.

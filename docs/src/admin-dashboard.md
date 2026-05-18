@@ -20,24 +20,24 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" https://ccflux.example.org/admin/
 
 ## Summary cards
 
-The top of the dashboard shows org-wide totals for the last 30 days:
+The top of the dashboard shows org-wide totals across all time:
 
 | Card | Description |
 |------|-------------|
-| **Users** | Distinct user emails that have sent at least one report |
+| **Users** | Distinct user emails with at least one recorded event |
 | **Sessions** | Distinct session IDs |
 | **Turns** | Total usage events recorded |
 | **Input tokens** | Sum of `input_tokens` across all events |
 | **Output tokens** | Sum of `output_tokens` across all events |
-| **Cache hit rate** | `cache_read_tokens / (input_tokens + cache_read_tokens)`, expressed as a percentage |
+| **Cache hit rate** | `cache_read_tokens / (input_tokens + cache_read_tokens + cache_write_tokens)`, expressed as a percentage |
 
-A high cache hit rate (>70%) indicates users are working within long sessions and Sonnet/Opus caching is active. A low rate suggests frequent cold-start sessions.
+A high cache hit rate (>70%) indicates users are working within long sessions and Sonnet/Opus prompt caching is active. A low rate suggests frequent cold-start sessions or short prompts.
 
 ---
 
 ## Daily billed tokens chart
 
-A 30-day line chart of daily token consumption (input + output, excluding cache reads). This is the metric that drives billing for seat-based plans.
+A 30-day line chart of daily token consumption (input + output, excluding cache). This is the metric that drives billing for seat-based plans.
 
 Each data point is midnight-to-midnight UTC. Use this chart to spot usage spikes or trends before the billing cycle closes.
 
@@ -45,19 +45,19 @@ Each data point is midnight-to-midnight UTC. Use this chart to spot usage spikes
 
 ## Billed tokens by user
 
-A horizontal bar chart of total billed tokens per user over the last 30 days. This is the primary tool for identifying power users who may need a higher-tier seat.
+A horizontal bar chart of total billed tokens per user over the last 30 days. The primary tool for identifying power users who may need a higher-tier seat.
 
 ---
 
 ## Billed tokens by model
 
-A horizontal bar chart of total billed tokens grouped by model (e.g. `claude-sonnet-4-6`, `claude-opus-4-5`). Use this to understand your model distribution and plan cost.
+A horizontal bar chart of total billed tokens grouped by model (e.g. `claude-sonnet-4-6`, `claude-opus-4-7`). Use this to understand your model distribution and estimate cost.
 
 ---
 
 ## Usage by user table
 
-A sortable table with one row per user:
+A table with one row per active user (last 30 days):
 
 | Column | Description |
 |--------|-------------|
@@ -69,20 +69,24 @@ A sortable table with one row per user:
 | **Sessions** | Distinct session count |
 | **Turns** | Total turns |
 | **Last active** | Most recent event timestamp |
+| **Tier** | Inferred seat tier — see [Tier classification](#tier-classification) below |
 
 ---
 
 ## Model breakdown table
 
-Token consumption and cache hit rate per model:
+Token consumption and cache hit rate per model across all time:
 
 | Column | Description |
 |--------|-------------|
 | **Model** | Model identifier |
+| **Users** | Distinct users who have used this model |
 | **Turns** | Number of usage events |
 | **Input tokens** | Sum of `input_tokens` |
 | **Output tokens** | Sum of `output_tokens` |
-| **Cache hit %** | `cache_read / (input + cache_read)` |
+| **Cache reads** | Sum of `cache_read_tokens` |
+| **Cache writes** | Sum of `cache_write_tokens` |
+| **Cache hit %** | `cache_read / (input + cache_read + cache_write)` |
 
 ---
 
@@ -90,32 +94,61 @@ Token consumption and cache hit rate per model:
 
 The 5-hour window panel shows usage bucketed into Claude Code's rolling 5-hour billing reset windows. This is the key indicator for seat pressure.
 
-**Peak window** — the bar chart shows the maximum token consumption in any single 5-hour window per user. Users with peak windows approaching their seat limits are candidates for seat upgrades.
+**Peak window bar chart** — maximum token consumption in any single 5-hour window per user. Users with peaks approaching their seat limit are candidates for upgrades.
 
-**Active window badge** — a live badge shows whether a user currently has an open window (a session active within the last 5 hours). This helps identify users who are in an ongoing heavy session.
+**Active window badge** — a live badge shows whether a user currently has an open window (a session active within the last 5 hours). Helps identify users in an ongoing heavy session.
 
-**Window detail table** — the per-window breakdown table shows each window's start time, end time, status (open/closed), total tokens, turn count, and how many distinct sessions contributed.
+**Window detail table** — per-window breakdown showing start time, end time, status (open/closed), total tokens, turn count, and contributing session count.
+
+---
+
+## Tier classification
+
+Each user's row in the usage table includes a **Tier** badge — an automated estimate of which Claude Code seat tier that user is on.
+
+Tiers are inferred from the distribution of completed 5-hour billing window peaks across the organisation. Users whose peak windows cluster together get the same tier label. The algorithm uses a 1.8× gap ratio to split tiers: if one group's peaks are consistently 1.8× higher than another group's, they are classified as a different tier.
+
+**Confidence levels:**
+
+| Badge colour | Confidence | Meaning |
+|---|---|---|
+| Green | **High** | Confirmed via a 429 rate-limit event (exact tier known) |
+| Blue | **Medium** | Inferred from 10+ completed windows |
+| Yellow | **Low** | Inferred from 3–9 completed windows |
+| Grey | **Unknown** | Fewer than 3 completed windows — not enough data |
+
+Tier inference runs every `TIER_INFERENCE_INTERVAL_SECS` (default 600 seconds) in the background. Labels are persisted across restarts.
+
+> **Note:** Tier labels are estimates. They reflect usage patterns, not Anthropic's internal account configuration. A user on a Max 5× seat who has never approached their limit may show as a lower tier until enough window data accumulates.
 
 ---
 
 ## Device keys table
 
-Lists all registered Ed25519 device keys with:
+Lists all registered Ed25519 device keys:
 
 | Column | Description |
 |--------|-------------|
 | **User** | Email of the user who registered the key |
-| **Device ID** | Hostname reported at registration time (informational) |
+| **Device ID** | Hostname reported at registration time |
 | **Registered** | When the key was first registered |
-| **Last seen** | Most recent report signed with this key |
+| **Last seen** | Most recent signed report from this device |
 | **Status** | Active or Revoked |
 | **Action** | **Revoke** button |
 
 ### Revoking a device
 
-Click **Revoke** next to a device to revoke it immediately. The next report signed by that device will receive a `403 key-revoked` response. The binary logs the error, clears its local queue, and goes silent until re-provisioned.
+Click **Revoke** next to a device to revoke it immediately. The next report from that device receives a `403 key-revoked` response. The binary logs the error, clears its local pending queue, and goes silent until re-provisioned.
 
-To re-provision a device: the user deletes `~/.claude/ccflux/signing_key` and `~/.claude/ccflux/key_registered` (if present), then restarts a CC session. A new keypair is generated and registered automatically on the next turn.
+To re-provision a revoked device, the user deletes two files and restarts a CC session:
+
+```bash
+rm ~/.claude/ccflux/signing_key
+rm ~/.claude/ccflux/key_revoked
+rm ~/.claude/ccflux/key_registered  # if present
+```
+
+A new keypair is generated and registered automatically on the next turn.
 
 Revoking a device does **not** revoke the user's refresh token — their other devices continue reporting normally.
 
@@ -123,7 +156,37 @@ Revoking a device does **not** revoke the user's refresh token — their other d
 
 ## Recent events table
 
-The last 50 usage events across all users, showing session ID, turn index, model, token counts, and received timestamp. Useful for confirming that a newly installed plugin is reporting correctly.
+The last 50 usage events across all users, showing received timestamp, user, device, session ID, turn index, model, and token counts. Useful for confirming that a newly installed plugin is reporting correctly.
+
+---
+
+## User provisioning
+
+The **User provisioning** panel is the primary interface for managing refresh tokens. It is visible at the bottom of the dashboard.
+
+### Adding a user
+
+Fill in the form at the top of the panel:
+
+| Field | Description |
+|---|---|
+| **Email** | The user's email address (must match their Claude Code account) |
+| **Division** | Optional organisational label (team, department) — for your records only |
+| **Days valid** | How many days before the token expires from the last use (default 365; rolling — resets on each use) |
+
+Click **Add user**. The next page shows the generated refresh token alongside the endpoint URL, ready to copy and send to the user.
+
+> The token is only shown once. If you lose it before sending it to the user, use **Reissue** to replace it.
+
+### Revoking a user
+
+Click **Revoke** next to an active token to revoke it immediately. The user's binary will receive a `401` response on the next token exchange and stop reporting. Use this when a user leaves the organisation or their token is compromised.
+
+### Reissuing a token
+
+Click **Reissue** to atomically revoke the old token and generate a new one. The new token page shows the replacement token ready to copy. Use this for periodic rotation or when a user reports their token was exposed.
+
+Reissuing preserves the user's usage history — all past events remain associated with their email address.
 
 ---
 

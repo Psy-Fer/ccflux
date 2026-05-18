@@ -362,13 +362,14 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     let key_table = format!(
         r#"<div class="panel" id="p-keys">
   <div class="panel-head" onclick="togglePanel('p-keys')">Device keys <span class="chv">&#9660;</span></div>
-  <table>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by email or device…" oninput="filterTable(this,'keys-body')"></div>
+  <div class="tbl-scroll"><table>
     <thead><tr>
       <th>Email</th><th>Device</th><th>Key (short)</th>
       <th>Registered</th><th>Last seen</th><th>Status</th>
     </tr></thead>
-    <tbody>{key_rows}</tbody>
-  </table>
+    <tbody id="keys-body">{key_rows}</tbody>
+  </table></div>
 </div>"#
     );
 
@@ -505,13 +506,14 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
         r#"<div class="panel" id="p-provision">
   <div class="panel-head" onclick="togglePanel('p-provision')">User provisioning <span class="chv">&#9660;</span></div>
   {prov_form}
-  <table>
+  <div class="tbl-filter-wrap"><input class="tbl-filter" type="search" placeholder="Filter by email or division…" oninput="filterTable(this,'prov-body')"></div>
+  <div class="tbl-scroll"><table>
     <thead><tr>
       <th>Email</th><th>Division</th><th>Status</th>
       <th>Created</th><th>Expires</th><th>Last active</th><th>Actions</th>
     </tr></thead>
-    <tbody>{user_provision_rows}</tbody>
-  </table>
+    <tbody id="prov-body">{user_provision_rows}</tbody>
+  </table></div>
 </div>"#
     );
 
@@ -1084,6 +1086,11 @@ fn page_shell(title: &str, content: &str) -> String {
     .tier-low{{background:#fef9c3;color:#854d0e}}
     .tier-unk{{background:#f1f5f9;color:#94a3b8}}
     .chart-wrap{{padding:1rem 1.1rem .75rem;overflow-x:auto}}
+    .tbl-scroll{{overflow-y:auto;max-height:420px}}
+    .tbl-scroll thead th{{position:sticky;top:0;z-index:1}}
+    .tbl-filter-wrap{{padding:.5rem 1.1rem .35rem}}
+    .tbl-filter{{width:100%;padding:.35rem .6rem;border:1px solid #d0d7de;border-radius:4px;font-size:.85rem;box-sizing:border-box}}
+    .tbl-filter:focus{{outline:none;border-color:#4f8ef7}}
     table{{width:100%;border-collapse:collapse}}
     th{{padding:.45rem 1rem;background:#f8f9fb;border-bottom:1px solid #eef0f3;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8894a4;text-align:left;white-space:nowrap}}
     td{{padding:.55rem 1rem;border-bottom:1px solid #f4f6f8;vertical-align:middle}}
@@ -1132,6 +1139,12 @@ document.querySelectorAll('[data-utc]').forEach(function(el){{
   var d=new Date(el.getAttribute('data-utc'));
   if(!isNaN(d.getTime()))el.textContent=d.toLocaleString(undefined,{{dateStyle:'short',timeStyle:'short'}});
 }});
+function filterTable(inp,tbodyId){{
+  var q=inp.value.toLowerCase();
+  document.getElementById(tbodyId).querySelectorAll('tr').forEach(function(row){{
+    row.style.display=row.textContent.toLowerCase().indexOf(q)>=0?'':'none';
+  }});
+}}
 function togglePanel(id){{
   var p=document.getElementById(id);
   var c=p.classList.toggle('collapsed');
