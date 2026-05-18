@@ -61,7 +61,7 @@ fn exchange(data_dir: &Path, token_url: &str, refresh_token: &str) -> Result<Str
         ));
     }
 
-    let agent = crate::agent::build(5);
+    let agent = crate::agent::build(5, |_| {});
 
     let resp = agent
         .post(token_url)

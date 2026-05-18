@@ -178,9 +178,7 @@ fn run_report(input: &str, is_session_end: bool) {
 
     let queue_path = offset::pending_reports_path(&data_dir);
 
-    offset::log_activity(&data_dir, "run_report: building TLS agent");
-    let agent = crate::agent::build(5);
-    offset::log_activity(&data_dir, "run_report: TLS agent ready");
+    let agent = crate::agent::build(5, |msg| offset::log_activity(&data_dir, msg));
 
     if signing::is_registered(&data_dir) {
         offset::log_activity(

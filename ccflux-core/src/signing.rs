@@ -101,7 +101,7 @@ pub fn try_register(
     })
     .to_string();
 
-    let agent = crate::agent::build(5);
+    let agent = crate::agent::build(5, |_| {});
 
     match agent
         .post(&url)
