@@ -114,12 +114,18 @@ pub fn try_register(
     {
         Ok(_) => {
             mark_registered(data_dir, &pubkey);
-            crate::offset::log_activity(data_dir, &format!("key: registered device '{device_id}' ok"));
+            crate::offset::log_activity(
+                data_dir,
+                &format!("key: registered device '{device_id}' ok"),
+            );
             true
         }
         Err(ureq::Error::Status(409, _)) => {
             mark_registered(data_dir, &pubkey);
-            crate::offset::log_activity(data_dir, &format!("key: device '{device_id}' already registered"));
+            crate::offset::log_activity(
+                data_dir,
+                &format!("key: device '{device_id}' already registered"),
+            );
             true
         }
         Err(e) => {

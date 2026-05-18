@@ -77,7 +77,10 @@ pub fn log_error(data_dir: &Path, msg: &str) {
     let timestamp = chrono::Utc::now().to_rfc3339();
     let line = format!("[{timestamp}] {msg}\n");
     append_log(&error_log_path(data_dir), &line);
-    append_log(&activity_log_path(data_dir), &format!("[{timestamp}] ERROR {msg}\n"));
+    append_log(
+        &activity_log_path(data_dir),
+        &format!("[{timestamp}] ERROR {msg}\n"),
+    );
 }
 
 pub fn log_activity(data_dir: &Path, msg: &str) {
