@@ -4,19 +4,21 @@
 
 ## Where to look first
 
-The binary logs all errors to:
+The binary logs all significant events — token refresh, key registration, each report sent, and all errors — to:
 
 ```
-~/.claude/ccflux/errors.log
+~/.claude/ccflux/activity.log
 ```
 
 For a custom CC config dir (e.g. `claude-work`):
 
 ```
-~/.claude-work/ccflux/errors.log
+~/.claude-work/ccflux/activity.log
 ```
 
-Check this file first. Each line is a timestamped error message. The binary always exits 0 — errors are never shown in your CC session.
+Check this file first. Each line is timestamped. Errors are prefixed with `ERROR` and also written to `errors.log`. The binary always exits 0 — nothing is ever shown in your CC session.
+
+The log is capped at ~64 KB and automatically trims itself, so it will not grow unbounded.
 
 ---
 
@@ -115,17 +117,23 @@ If the error persists, the refresh token itself may be revoked — contact IT.
 
 **Steps to diagnose:**
 
-1. Check `errors.log` for any errors.
+1. **Check `activity.log` first.** If it shows `no credentials — create ...`, the config file wasn't found or is in the wrong location. If the log doesn't exist at all, the hooks never fired — see below.
 
-2. Confirm the plugin is installed in the right CC config directory. If you use a custom alias, make sure the plugin is in the matching plugins directory.
+2. **Did you reload plugins and start a fresh session?**
+   Plugin hooks only apply to sessions started *after* the plugin is loaded. If you skipped this step:
+   - Run `/plugins reload` in your current CC session
+   - Exit that session
+   - Start a new session
 
-3. Confirm the endpoint is correct. Test it directly:
+3. Confirm the plugin is installed in the right CC config directory. If you use a custom alias, make sure the plugin is in the matching plugins directory.
+
+4. Confirm the endpoint is reachable:
    ```bash
    curl https://ccflux.example.org/health
    # expect: {"status":"ok","db":"ok"}
    ```
 
-4. Check whether an offset file was created:
+5. Check whether an offset file was created:
    ```bash
    ls ~/.claude/ccflux/*.offset
    ```
@@ -134,11 +142,11 @@ If the error persists, the refresh token itself may be revoked — contact IT.
    ls -la ~/.claude/plugins/ccflux/scripts/
    ```
 
-5. Check the `pending_reports.jsonl` queue:
+6. Check the `pending_reports.jsonl` queue:
    ```bash
    wc -l ~/.claude/ccflux/pending_reports.jsonl
    ```
-   If this has entries and keeps growing, reports are being queued but not sent. The device key is probably not registered yet — check `errors.log` for registration errors.
+   If this has entries and keeps growing, reports are being queued but not sent. The device key is probably not registered yet — check `activity.log` for registration errors.
 
 ---
 
@@ -150,7 +158,7 @@ If the error persists, the refresh token itself may be revoked — contact IT.
 
 **Fix:**
 - Confirm the receiver is reachable: `curl https://ccflux.example.org/health`
-- Check `errors.log` for registration errors
+- Check `activity.log` for registration errors
 - If the key is stuck, try deleting `key_registered` (if it exists) to force a re-registration attempt:
   ```bash
   rm ~/.claude/ccflux/key_registered
@@ -199,7 +207,7 @@ If Claude Code is killed with SIGKILL (e.g. `kill -9`, OOM killer), no hooks fir
 
 ### JSONL schema instability
 
-Claude Code's transcript format is undocumented. If the parser starts returning `0` tokens for all turns, the `sessionId` or `usage` field names may have changed in a CC update. Check `errors.log` for unexpected-structure warnings, then inspect a recent transcript file:
+Claude Code's transcript format is undocumented. If the parser starts returning `0` tokens for all turns, the `sessionId` or `usage` field names may have changed in a CC update. Check `activity.log` for unexpected-structure warnings, then inspect a recent transcript file:
 
 ```bash
 # Find a recent session transcript

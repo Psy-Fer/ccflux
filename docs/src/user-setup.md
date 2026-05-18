@@ -2,8 +2,8 @@
 
 This guide is for Claude Code users whose IT team has deployed ccflux. You will need two things from IT before you start:
 
-- Your **receiver endpoint** URL (e.g. `https://ccflux.example.org/report`)
-- Your personal **refresh token** (a long hex string like `rtok_abc123...`)
+- Your **receiver endpoint** URL (e.g. `https://ccflux.example.org`)
+- Your personal **refresh token** (a long string like `rtok_abc123...`)
 
 ---
 
@@ -43,7 +43,7 @@ Fill in:
 
 | Field | Value |
 |-------|-------|
-| **Receiver endpoint** | The URL your IT team gave you, e.g. `https://ccflux.example.org/report` |
+| **Receiver endpoint** | The URL your IT team gave you, e.g. `https://ccflux.example.org` |
 | **API token** | Your personal refresh token |
 
 The token is stored in your system keychain (or `~/.claude/.credentials.json` on systems without a keychain). It is never written to disk in plaintext.
@@ -56,31 +56,35 @@ If plugin settings aren't available in your CC version, create a config file ins
 mkdir -p ~/.claude/ccflux
 cat > ~/.claude/ccflux/config.json << 'EOF'
 {
-  "endpoint": "https://ccflux.example.org/report",
+  "endpoint": "https://ccflux.example.org",
   "token": "rtok_abc123..."
 }
 EOF
 chmod 600 ~/.claude/ccflux/config.json
 ```
 
-For a custom CC config dir:
-
-```bash
-mkdir -p ~/.claude-work/ccflux
-cat > ~/.claude-work/ccflux/config.json << 'EOF'
-{
-  "endpoint": "https://ccflux.example.org/report",
-  "token": "rtok_abc123..."
-}
-EOF
-chmod 600 ~/.claude-work/ccflux/config.json
-```
+For a custom CC config dir, replace `~/.claude` with your config dir (e.g. `~/.claude-work`).
 
 ---
 
-## Step 3: Verify the first report
+## Step 3: Reload plugins and start a fresh session
 
-Start a new Claude Code session and complete a turn (send a message and get a response). After the turn, the plugin should have:
+Plugin hooks only apply to sessions started **after** the plugin is loaded. After installing and configuring ccflux you must:
+
+1. In your current CC session, run:
+   ```
+   /plugins reload
+   ```
+2. **Exit that session completely.**
+3. Start a new CC session — hooks are now active.
+
+> **Why this matters:** The session you run `/plugins reload` in was already started without ccflux hooks. Only sessions begun after the reload will report usage. Skipping this step is the most common reason no data appears in the dashboard.
+
+---
+
+## Step 4: Verify the first report
+
+Complete a turn in the new session (send a message and get a response). After the turn, the plugin will have:
 
 1. Generated a device signing key (`~/.claude/ccflux/signing_key`, readable only by you)
 2. Registered the public key with the receiver
@@ -88,15 +92,15 @@ Start a new Claude Code session and complete a turn (send a message and get a re
 
 To confirm data is flowing, ask your IT admin to check the admin dashboard for your email address. The first report typically appears within a few seconds of a turn completing.
 
-### Check for errors locally
+### Check the activity log locally
 
-If something is misconfigured, errors are logged silently to:
+All significant events — token refresh, key registration, each report sent — are logged to:
 
 ```
-~/.claude/ccflux/errors.log
+~/.claude/ccflux/activity.log
 ```
 
-Common entries and what they mean are covered in the [Troubleshooting](./troubleshooting.md) guide.
+Errors also appear here (prefixed with `ERROR`) as well as in `errors.log`. The activity log is the first place to look when troubleshooting. Common entries and what they mean are covered in the [Troubleshooting](./troubleshooting.md) guide.
 
 ---
 
