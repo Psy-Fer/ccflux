@@ -699,7 +699,13 @@ pub async fn handle_provision_user(
         .unwrap_or(365);
 
     match db::admin_provision_user(&state.pool, &email, &division, days).await {
-        Ok(token) => Html(token_issued_page(&email, &token, "provisioned", &state.base_url)).into_response(),
+        Ok(token) => Html(token_issued_page(
+            &email,
+            &token,
+            "provisioned",
+            &state.base_url,
+        ))
+        .into_response(),
         Err(e) => {
             eprintln!("provision_user error: {e}");
             error_page("Failed to provision user. Check server logs.").into_response()
@@ -765,9 +771,13 @@ pub async fn handle_reissue_token(
         .unwrap_or(365);
 
     match db::admin_reissue_token(&state.pool, &old_token, days).await {
-        Ok((email, new_token)) => {
-            Html(token_issued_page(&email, &new_token, "reissued", &state.base_url)).into_response()
-        }
+        Ok((email, new_token)) => Html(token_issued_page(
+            &email,
+            &new_token,
+            "reissued",
+            &state.base_url,
+        ))
+        .into_response(),
         Err(e) => {
             eprintln!("reissue_token error: {e}");
             error_page("Failed to reissue token. Check server logs.").into_response()
@@ -1176,7 +1186,8 @@ fn token_issued_page(email: &str, token: &str, action: &str, base_url: &str) -> 
         r#"<p class="tok-hint" style="color:#f59e0b;margin-top:.75rem">
         <strong>BASE_URL not set</strong> — set the <code style="font-size:.82rem">BASE_URL</code>
         environment variable on the receiver so the endpoint appears here.
-      </p>"#.to_string()
+      </p>"#
+            .to_string()
     } else {
         let url_esc = esc(base_url);
         let config_json = esc(&format!(

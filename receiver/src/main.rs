@@ -78,7 +78,11 @@ async fn main() {
     );
     println!(
         "  BASE_URL                   = {}",
-        if base_url.is_empty() { "(unset)" } else { &base_url }
+        if base_url.is_empty() {
+            "(unset)"
+        } else {
+            &base_url
+        }
     );
     println!("  COOKIE_SECURE              = {cookie_secure}");
     println!("  TIER_INFERENCE_DAYS        = {tier_inference_days}");

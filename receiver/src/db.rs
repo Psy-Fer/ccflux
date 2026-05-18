@@ -183,11 +183,9 @@ pub async fn init(path: &str) -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await?;
     // Migrate existing DBs that predate the device_id column.
-    let _ = sqlx::query(
-        "ALTER TABLE usage_events ADD COLUMN device_id TEXT NOT NULL DEFAULT ''",
-    )
-    .execute(&pool)
-    .await;
+    let _ = sqlx::query("ALTER TABLE usage_events ADD COLUMN device_id TEXT NOT NULL DEFAULT ''")
+        .execute(&pool)
+        .await;
     Ok(pool)
 }
 
