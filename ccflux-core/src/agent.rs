@@ -26,12 +26,16 @@ pub fn build(timeout_secs: u64, log: impl Fn(&str)) -> ureq::Agent {
                 log("agent: PEM read ok, loading webpki roots");
                 let mut roots = rustls::RootCertStore::empty();
                 roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-                log("agent: webpki roots loaded, parsing custom CA");
+                let webpki_count = roots.len();
+                log(&format!("agent: webpki roots loaded ({webpki_count}), parsing custom CA"));
+                let mut added = 0usize;
                 for cert in rustls_pemfile::certs(&mut pem.as_slice()).flatten() {
-                    let _ = roots.add(cert);
+                    match roots.add(cert) {
+                        Ok(()) => added += 1,
+                        Err(e) => log(&format!("agent: cert rejected by trust store: {e}")),
+                    }
                 }
-                let cert_count = roots.len();
-                log(&format!("agent: custom CA parsed ({cert_count} certs in store), building ClientConfig"));
+                log(&format!("agent: custom CA: {added} cert(s) added to store, building ClientConfig"));
                 let provider = Arc::new(rustls::crypto::ring::default_provider());
                 let config = rustls::ClientConfig::builder_with_provider(provider)
                     .with_safe_default_protocol_versions()
