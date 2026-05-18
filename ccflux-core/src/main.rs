@@ -80,7 +80,16 @@ fn run_report(input: &str, is_session_end: bool) {
         None => return,
     };
 
+    offset::log_activity(&data_dir, "run_report: invoked");
+
     if !transcript_belongs_to_plugin(&data_dir) {
+        offset::log_error(
+            &data_dir,
+            &format!(
+                "run_report: transcript_belongs_to_plugin rejected — CLAUDE_PLUGIN_ROOT={:?}",
+                std::env::var("CLAUDE_PLUGIN_ROOT").unwrap_or_default()
+            ),
+        );
         return;
     }
 
