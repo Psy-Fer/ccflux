@@ -166,6 +166,59 @@ If the error persists, the refresh token itself may be revoked — contact IT.
 
 ---
 
+### TLS with an internal CA
+
+**Symptom:** `activity.log` shows:
+
+```
+ERROR POST failed: tls connection init failed: invalid peer certificate: UnknownIssuer
+ERROR POST failed: tls connection init failed: invalid peer certificate: BadSignature
+```
+
+**Cause:** The binary uses Mozilla's bundled root CAs (webpki-roots). If your receiver sits behind a reverse proxy with a self-signed or internal CA certificate (e.g. Caddy's local CA, a corporate PKI), the binary won't trust it by default.
+
+**Fix:** Set `CCFLUX_CA_CERT` to the path of the CA certificate (PEM format) before launching Claude Code:
+
+```bash
+# Linux / macOS / Git Bash on Windows
+export CCFLUX_CA_CERT="/path/to/intermediate.crt"
+```
+
+```powershell
+# Windows PowerShell
+$env:CCFLUX_CA_CERT = "C:\path\to\intermediate.crt"
+```
+
+**Which cert to use:** Use the certificate that directly signed your server's TLS certificate. For Caddy's local CA this is the *intermediate* cert, not the root:
+
+```bash
+# Caddy running as root — intermediate is here:
+sudo cat /root/.local/share/caddy/pki/authorities/local/intermediate.crt
+
+# Caddy running as your user:
+cat ~/.local/share/caddy/pki/authorities/local/intermediate.crt
+```
+
+Verify the chain is correct before setting the variable:
+
+```bash
+openssl s_client -connect your-host:443 \
+  -CAfile /path/to/intermediate.crt \
+  -partial_chain 2>&1 | grep "Verify return"
+# Should print: Verify return code: 0 (ok)
+```
+
+If openssl returns code `30` (authority and subject key identifier mismatch), Caddy may have regenerated its PKI after issuing the current server cert. Wipe Caddy's data directory and restart it to resync:
+
+```bash
+sudo rm -rf /root/.local/share/caddy/   # adjust path if not running as root
+# restart Caddy
+```
+
+> **Note:** `CCFLUX_CA_CERT` is only needed for dev/test setups with self-signed certs. In production, use a certificate from a public CA (Let's Encrypt, etc.) and no extra configuration is required.
+
+---
+
 ### Windows / PowerShell issues
 
 If running natively on Windows (not WSL), the `.ps1` wrapper scripts must be permitted to execute:

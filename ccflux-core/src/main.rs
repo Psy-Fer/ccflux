@@ -80,13 +80,11 @@ fn run_report(input: &str, is_session_end: bool) {
         None => return,
     };
 
-    offset::log_activity(&data_dir, "run_report: invoked");
-
     if !transcript_belongs_to_plugin(&data_dir) {
         offset::log_error(
             &data_dir,
             &format!(
-                "run_report: transcript_belongs_to_plugin rejected — CLAUDE_PLUGIN_ROOT={:?}",
+                "ccflux: transcript rejected — CLAUDE_PLUGIN_ROOT={:?}",
                 std::env::var("CLAUDE_PLUGIN_ROOT").unwrap_or_default()
             ),
         );
@@ -107,33 +105,19 @@ fn run_report(input: &str, is_session_end: bool) {
         None => return,
     };
 
-    offset::log_activity(&data_dir, &format!("run_report: credentials ok, endpoint={endpoint}"));
-
     // Load or generate the device signing key.
     let device_key = signing::load_or_generate(&data_dir);
 
     // If not yet registered, attempt registration on every turn until it succeeds.
-    let registered = signing::is_registered(&data_dir);
-    offset::log_activity(&data_dir, &format!("run_report: key registered={registered}"));
-    if !registered {
+    if !signing::is_registered(&data_dir) {
         signing::try_register(&data_dir, &endpoint, &access_token, &device_key);
     }
 
     let state = offset::read_offset(&data_dir, &hook.session_id);
 
-    offset::log_activity(
-        &data_dir,
-        &format!(
-            "run_report: parsing transcript from offset line={} session={}",
-            state.line,
-            &hook.session_id[..8]
-        ),
-    );
-
     let turn_data = match parse::collect_since_offset(transcript, &state) {
         Ok(Some(d)) => d,
         Ok(None) => {
-            offset::log_activity(&data_dir, "run_report: no new assistant entries at current offset");
             if is_session_end {
                 mark_closed(&data_dir, &hook.session_id, state);
             }
@@ -181,10 +165,6 @@ fn run_report(input: &str, is_session_end: bool) {
     let agent = crate::agent::build(5, |msg| offset::log_activity(&data_dir, msg));
 
     if signing::is_registered(&data_dir) {
-        offset::log_activity(
-            &data_dir,
-            &format!("run_report: attempting POST to {endpoint}"),
-        );
         match report::post(&agent, &endpoint, &access_token, &body, &device_key) {
             ReportStatus::Accepted => {
                 offset::log_activity(

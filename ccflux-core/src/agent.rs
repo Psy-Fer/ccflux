@@ -1,57 +1,44 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Builds a ureq agent. Calls `log` with diagnostic messages at each step so the
-/// caller can write them to the activity log and pinpoint any slowness.
-///
-/// Default: bundled Mozilla root CAs (webpki-roots) — instant, no system enumeration.
-/// If CCFLUX_CA_CERT points to a PEM file, that CA is added on top of the Mozilla roots.
+/// Builds a ureq agent with bundled Mozilla root CAs (webpki-roots).
+/// If CCFLUX_CA_CERT points to a PEM file, that CA is added on top of the Mozilla roots —
+/// use this for testing with a self-signed or internal CA (e.g. Caddy local intermediate).
 pub fn build(timeout_secs: u64, log: impl Fn(&str)) -> ureq::Agent {
-    log("agent: creating builder");
     let builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(timeout_secs))
         .timeout_read(Duration::from_secs(timeout_secs));
-    log("agent: builder created");
 
-    let ca_cert_env = std::env::var("CCFLUX_CA_CERT");
-    log(&format!("agent: CCFLUX_CA_CERT={ca_cert_env:?}"));
-
-    if let Ok(path) = ca_cert_env {
-        log(&format!("agent: reading PEM from {path}"));
+    if let Ok(path) = std::env::var("CCFLUX_CA_CERT") {
         match std::fs::read(&path) {
             Err(e) => {
-                log(&format!("agent: PEM read failed ({e}), using default TLS"));
+                log(&format!("tls: CCFLUX_CA_CERT read failed ({e}), using default TLS"));
             }
             Ok(pem) => {
-                log("agent: PEM read ok, loading webpki roots");
                 let mut roots = rustls::RootCertStore::empty();
                 roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-                let webpki_count = roots.len();
-                log(&format!("agent: webpki roots loaded ({webpki_count}), parsing custom CA"));
                 let mut added = 0usize;
                 for cert in rustls_pemfile::certs(&mut pem.as_slice()).flatten() {
                     match roots.add(cert) {
                         Ok(()) => added += 1,
-                        Err(e) => log(&format!("agent: cert rejected by trust store: {e}")),
+                        Err(e) => log(&format!("tls: custom CA cert rejected: {e}")),
                     }
                 }
-                log(&format!("agent: custom CA: {added} cert(s) added to store, building ClientConfig"));
-                let provider = Arc::new(rustls::crypto::ring::default_provider());
-                let config = rustls::ClientConfig::builder_with_provider(provider)
-                    .with_safe_default_protocol_versions()
-                    .unwrap()
-                    .with_root_certificates(roots)
-                    .with_no_client_auth();
-                log("agent: calling tls_config().build()");
-                let agent = builder.tls_config(Arc::new(config)).build();
-                log("agent: done (custom TLS)");
-                return agent;
+                if added == 0 {
+                    log(&format!("tls: CCFLUX_CA_CERT={path} — no certs added, using default TLS"));
+                } else {
+                    log(&format!("tls: custom CA loaded from {path} ({added} cert(s))"));
+                    let provider = Arc::new(rustls::crypto::ring::default_provider());
+                    let config = rustls::ClientConfig::builder_with_provider(provider)
+                        .with_safe_default_protocol_versions()
+                        .unwrap()
+                        .with_root_certificates(roots)
+                        .with_no_client_auth();
+                    return builder.tls_config(Arc::new(config)).build();
+                }
             }
         }
     }
 
-    log("agent: calling builder.build() (default webpki TLS)");
-    let agent = builder.build();
-    log("agent: done (default TLS)");
-    agent
+    builder.build()
 }

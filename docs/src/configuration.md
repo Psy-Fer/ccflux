@@ -49,11 +49,12 @@ Format:
 
 Set this file to mode `0600`. If both the env vars and the config file are absent, the binary exits silently — no reporting occurs.
 
-### Development-only variable
+### Development-only variables
 
 | Variable | Description |
 |----------|-------------|
 | `CCFLUX_ALLOW_HTTP=1` | Allows the binary to POST to `http://` endpoints. For local development only. **Never set this in production.** |
+| `CCFLUX_CA_CERT=<path>` | Path to a PEM-encoded CA certificate to add to the TLS trust store. Use this when your receiver is behind a reverse proxy with a self-signed or internal CA cert (e.g. Caddy local CA). The cert is added on top of the bundled Mozilla root CAs — public CAs work without this variable. See [TLS with an internal CA](#tls-with-an-internal-ca) in Troubleshooting. |
 
 ---
 
@@ -80,7 +81,8 @@ The binary stores state in `<data_dir>/ccflux/`. For the default CC installation
 | `token_cache.json` | `0600` | Cached access token and expiry. Refreshed automatically near expiry. |
 | `pending_reports.jsonl` | `0644` | Queue of reports generated before the device key was registered. Max 500 entries. |
 | `<session_id>.offset` | `0644` | Per-session offset: `{ "line": N, "turn": N, "session_start": "...", "closed": false }` |
-| `errors.log` | `0644` | Append-only error log. All binary errors are written here instead of surfacing to the user. |
+| `activity.log` | `0644` | Rolling diagnostic log (~64 KB cap). Records token refreshes, key registrations, reports sent/queued, and errors. Check this first when troubleshooting. |
+| `errors.log` | `0644` | Append-only error log. Errors are also mirrored here with an `ERROR` prefix. |
 | `config.json` | `0600` | Optional fallback config (endpoint + token). Preferred: plugin settings UI. |
 
 ---
