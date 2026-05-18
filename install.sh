@@ -15,9 +15,13 @@ PLUGIN_SRC="${SCRIPT_DIR}/plugin"
 
 # ── Flags ─────────────────────────────────────────────────────────────────────
 OFFLINE=false
+ENDPOINT=""
+TOKEN=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --offline) OFFLINE=true; shift ;;
+        --endpoint) ENDPOINT="${2:-}"; shift 2 ;;
+        --token)    TOKEN="${2:-}";    shift 2 ;;
         *) echo "error: unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -552,6 +556,26 @@ fi
 echo ""
 register_plugin "$INSTALL_DIR" "$PLUGIN_DEST"
 
+# ── Write config.json if --endpoint / --token provided ───────────────────────
+
+if [[ -n "${ENDPOINT}" || -n "${TOKEN}" ]]; then
+    config_dir="${INSTALL_DIR}/ccflux"
+    mkdir -p "$config_dir"
+    config_file="${config_dir}/config.json"
+    {
+        printf '{\n'
+        if [[ -n "${ENDPOINT}" && -n "${TOKEN}" ]]; then
+            printf '  "endpoint": "%s",\n  "token": "%s"\n' "${ENDPOINT}" "${TOKEN}"
+        elif [[ -n "${ENDPOINT}" ]]; then
+            printf '  "endpoint": "%s"\n' "${ENDPOINT}"
+        else
+            printf '  "token": "%s"\n' "${TOKEN}"
+        fi
+        printf '}\n'
+    } > "$config_file"
+    echo "  wrote   ccflux/config.json  $(dim "(endpoint + token pre-configured)")"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -562,12 +586,16 @@ echo "$(bold "Next steps:")"
 echo ""
 echo "  1. Restart Claude Code (or run $(dim "/plugins refresh") if supported)."
 echo ""
-echo "  2. Open Claude Code settings → Plugins → ccflux and set:"
-echo "       $(bold "Receiver endpoint")  your organisation's ccflux receiver URL"
-echo "       $(bold "API token")          your personal token, provided by IT"
-echo ""
-echo "     Alternatively, create $(dim "<CC data dir>/ccflux/config.json") with:"
-echo "       $(dim '{ "endpoint": "https://ccflux.example.org", "token": "rtok_..." }')"
+if [[ -n "${ENDPOINT}" || -n "${TOKEN}" ]]; then
+    echo "  2. $(green "Receiver endpoint and token are pre-configured") — no manual setup needed."
+else
+    echo "  2. Open Claude Code settings → Plugins → ccflux and set:"
+    echo "       $(bold "Receiver endpoint")  your organisation's ccflux receiver URL"
+    echo "       $(bold "API token")          your personal token, provided by IT"
+    echo ""
+    echo "     Alternatively, create $(dim "<CC data dir>/ccflux/config.json") with:"
+    echo "       $(dim '{ "endpoint": "https://ccflux.example.org", "token": "rtok_..." }')"
+fi
 echo ""
 echo "  3. Start a session — the first turn will register your device key"
 echo "     and begin reporting usage."

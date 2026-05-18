@@ -11,7 +11,9 @@
 
 param(
     [switch]$UseStandardHooks,
-    [switch]$Offline
+    [switch]$Offline,
+    [string]$Endpoint = '',
+    [string]$Token    = ''
 )
 
 Set-StrictMode -Version Latest
@@ -342,6 +344,19 @@ function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
 Write-Host ""
 Register-Plugin $installDir $PluginDest
 
+# ── Write config.json if -Endpoint / -Token provided ─────────────────────────
+
+if ($Endpoint -or $Token) {
+    $cfgDir  = Join-Path $installDir 'ccflux'
+    $cfgFile = Join-Path $cfgDir 'config.json'
+    New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+    $cfgObj  = [ordered]@{}
+    if ($Endpoint) { $cfgObj['endpoint'] = $Endpoint }
+    if ($Token)    { $cfgObj['token']    = $Token }
+    $cfgObj | ConvertTo-Json -Depth 2 | Set-Content $cfgFile -Encoding UTF8
+    Write-Dim "  wrote   ccflux\config.json  (endpoint + token pre-configured)"
+}
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 Write-Host ""
@@ -352,12 +367,17 @@ Write-Bold "Next steps:"
 Write-Host ""
 Write-Host "  1. Restart Claude Code (or run /plugins refresh if supported)."
 Write-Host ""
-Write-Host "  2. Open Claude Code settings -> Plugins -> ccflux and set:"
-Write-Host "         Receiver endpoint   your organisation's ccflux receiver URL" -ForegroundColor White
-Write-Host "         API token           your personal token, provided by IT"     -ForegroundColor White
-Write-Host ""
-Write-Dim  "     Or create <CC data dir>\ccflux\config.json:"
-Write-Dim  '       { "endpoint": "https://ccflux.example.org", "token": "rtok_..." }'
+if ($Endpoint -or $Token) {
+    Write-Host "  2. " -NoNewline
+    Write-Host "Receiver endpoint and token are pre-configured — no manual setup needed." -ForegroundColor Green
+} else {
+    Write-Host "  2. Open Claude Code settings -> Plugins -> ccflux and set:"
+    Write-Host "         Receiver endpoint   your organisation's ccflux receiver URL" -ForegroundColor White
+    Write-Host "         API token           your personal token, provided by IT"     -ForegroundColor White
+    Write-Host ""
+    Write-Dim  "     Or create <CC data dir>\ccflux\config.json:"
+    Write-Dim  '       { "endpoint": "https://ccflux.example.org", "token": "rtok_..." }'
+}
 Write-Host ""
 Write-Host "  3. Start a session — the first turn will register your device key"
 Write-Host "     and begin reporting usage."

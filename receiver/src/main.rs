@@ -36,6 +36,7 @@ struct AppState {
     admin_token: Option<String>,
     cookie_secure: bool,
     tier_cache: Arc<Mutex<HashMap<String, tiers::TierClassification>>>,
+    base_url: String,
 }
 
 #[tokio::main]
@@ -52,6 +53,7 @@ async fn main() {
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     let admin_token: Option<String> = std::env::var("ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
+    let base_url: String = std::env::var("BASE_URL").unwrap_or_default();
     let cookie_secure: bool = std::env::var("COOKIE_SECURE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
@@ -74,6 +76,10 @@ async fn main() {
             "unset (dashboard disabled)"
         }
     );
+    println!(
+        "  BASE_URL                   = {}",
+        if base_url.is_empty() { "(unset)" } else { &base_url }
+    );
     println!("  COOKIE_SECURE              = {cookie_secure}");
     println!("  TIER_INFERENCE_DAYS        = {tier_inference_days}");
     println!("  TIER_INFERENCE_INTERVAL    = {tier_inference_interval_secs}s");
@@ -95,6 +101,7 @@ async fn main() {
         refresh_token_rolling_days,
         require_signatures,
         admin_token,
+        base_url,
         cookie_secure,
         tier_cache: tier_cache.clone(),
     };

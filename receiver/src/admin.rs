@@ -697,7 +697,7 @@ pub async fn handle_provision_user(
         .unwrap_or(365);
 
     match db::admin_provision_user(&state.pool, &email, &division, days).await {
-        Ok(token) => Html(token_issued_page(&email, &token, "provisioned")).into_response(),
+        Ok(token) => Html(token_issued_page(&email, &token, "provisioned", &state.base_url)).into_response(),
         Err(e) => {
             eprintln!("provision_user error: {e}");
             error_page("Failed to provision user. Check server logs.").into_response()
@@ -764,7 +764,7 @@ pub async fn handle_reissue_token(
 
     match db::admin_reissue_token(&state.pool, &old_token, days).await {
         Ok((email, new_token)) => {
-            Html(token_issued_page(&email, &new_token, "reissued")).into_response()
+            Html(token_issued_page(&email, &new_token, "reissued", &state.base_url)).into_response()
         }
         Err(e) => {
             eprintln!("reissue_token error: {e}");
@@ -1163,12 +1163,43 @@ function onIntervalChange(){{
     )
 }
 
-fn token_issued_page(email: &str, token: &str, action: &str) -> String {
+fn token_issued_page(email: &str, token: &str, action: &str, base_url: &str) -> String {
     let heading = if action == "provisioned" {
         "Token provisioned"
     } else {
         "Token reissued"
     };
+
+    let endpoint_section = if base_url.is_empty() {
+        r#"<p class="tok-hint" style="color:#f59e0b;margin-top:.75rem">
+        <strong>BASE_URL not set</strong> — set the <code style="font-size:.82rem">BASE_URL</code>
+        environment variable on the receiver so the endpoint appears here.
+      </p>"#.to_string()
+    } else {
+        let url_esc = esc(base_url);
+        let config_json = esc(&format!(
+            "{{\n  \"endpoint\": \"{}\",\n  \"token\": \"{}\"\n}}",
+            base_url, token
+        ));
+        format!(
+            r#"<div class="tok-box" style="margin-top:.75rem">
+        <code id="ep">{url_esc}</code>
+        <button class="btn-copy"
+          onclick="copyEl('ep',this)">Copy</button>
+      </div>
+      <p class="tok-hint" style="margin-top:.75rem">
+        config.json snippet — paste both values at once:
+      </p>
+      <div class="tok-box" style="align-items:flex-start">
+        <code id="cfg" style="white-space:pre">{config_json}</code>
+        <button class="btn-copy" style="align-self:flex-start"
+          onclick="copyEl('cfg',this)">Copy</button>
+      </div>"#,
+            url_esc = url_esc,
+            config_json = config_json,
+        )
+    };
+
     let body = format!(
         r#"<div class="topbar"><h1>ccflux admin</h1></div>
 <div class="wrap">
@@ -1176,14 +1207,17 @@ fn token_issued_page(email: &str, token: &str, action: &str) -> String {
     <div class="panel-head">{heading} — {email_esc}</div>
     <div class="tok-wrap">
       <p class="tok-warn">Copy this token now — it will not be shown again in this UI.</p>
+      <p style="font-size:.82rem;color:#555;margin-bottom:.4rem">API token</p>
       <div class="tok-box">
         <code id="tok">{token_esc}</code>
         <button class="btn-copy"
-          onclick="navigator.clipboard.writeText(document.getElementById('tok').textContent).then(function(){{this.textContent='Copied!'}}.bind(this))">Copy</button>
+          onclick="copyEl('tok',this)">Copy</button>
       </div>
-      <p class="tok-hint">
-        Send this token along with your receiver endpoint to <strong>{email_esc}</strong>.<br>
-        They enter both values in Claude Code plugin settings or in
+      <p style="font-size:.82rem;color:#555;margin:.75rem 0 .4rem">Receiver endpoint</p>
+      {endpoint_section}
+      <p class="tok-hint" style="margin-top:1rem">
+        Send both values to <strong>{email_esc}</strong>.<br>
+        They enter them in Claude Code plugin settings or in
         <code style="font-size:.82rem">&lt;data_dir&gt;/ccflux/config.json</code>.
       </p>
     </div>
@@ -1191,10 +1225,17 @@ fn token_issued_page(email: &str, token: &str, action: &str) -> String {
       <a class="back-link" href="/admin/">&#8592; Back to dashboard</a>
     </div>
   </div>
-</div>"#,
+</div>
+<script>
+function copyEl(id,btn){{
+  navigator.clipboard.writeText(document.getElementById(id).textContent)
+    .then(function(){{btn.textContent='Copied!';setTimeout(function(){{btn.textContent='Copy';}},2000);}});
+}}
+</script>"#,
         heading = heading,
         email_esc = esc(email),
         token_esc = esc(token),
+        endpoint_section = endpoint_section,
     );
     page_shell(heading, &body)
 }
