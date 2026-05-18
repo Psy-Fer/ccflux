@@ -85,13 +85,15 @@ _reg_python() {
 
     CCFLUX_INSTALL_DIR="$install_dir" \
     CCFLUX_PLUGIN_DEST="$plugin_dest" \
+    CCFLUX_SCRIPT_DIR="${SCRIPT_DIR}" \
     CCFLUX_TIMESTAMP="$now" \
     CCFLUX_OFFLINE="${OFFLINE}" \
     "$pybin" - <<'PYEOF'
-import json, os
+import json, os, subprocess
 
 install_dir  = os.environ['CCFLUX_INSTALL_DIR']
 plugin_dest  = os.environ['CCFLUX_PLUGIN_DEST']
+script_dir   = os.environ['CCFLUX_SCRIPT_DIR']
 ts           = os.environ['CCFLUX_TIMESTAMP']
 offline      = os.environ.get('CCFLUX_OFFLINE') == 'true'
 
@@ -101,9 +103,26 @@ settings_j   = os.path.join(install_dir, 'settings.json')
 known_j      = os.path.join(plugins_dir, 'known_marketplaces.json')
 mkt_dir      = os.path.join(plugins_dir, 'marketplaces', 'ccflux')
 
+# Offline: use the install script's own git repo as a local file:// source.
+# git-subdir is universally supported by CC; no internet required for file:// URLs.
+git_sha = None
+git_ref = 'main'
+if offline:
+    def _git(*args):
+        return subprocess.run(['git', '-C', script_dir] + list(args),
+                              capture_output=True, text=True)
+    r = _git('rev-parse', 'HEAD')
+    if r.returncode == 0: git_sha = r.stdout.strip()
+    r = _git('rev-parse', '--abbrev-ref', 'HEAD')
+    if r.returncode == 0 and r.stdout.strip(): git_ref = r.stdout.strip()
+
 if offline:
     os.makedirs(os.path.join(mkt_dir, '.claude-plugin'), exist_ok=True)
     os.makedirs(os.path.join(mkt_dir, 'plugins', 'ccflux'), exist_ok=True)
+    if git_sha:
+        plugin_source = {"source": "git-subdir", "url": "file://" + script_dir, "path": "plugin", "ref": git_ref}
+    else:
+        plugin_source = {"source": "directory", "path": plugin_dest}
     catalog_offline = {
         "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
         "name": "ccflux",
@@ -114,7 +133,7 @@ if offline:
             "description": "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver.",
             "author": {"name": "Psy-Fer"},
             "category": "monitoring",
-            "source": {"source": "directory", "path": plugin_dest},
+            "source": plugin_source,
             "homepage": "https://github.com/psy-fer/ccflux"
         }]
     }
@@ -158,7 +177,9 @@ try:
     with open(installed_j) as f: ip = json.load(f)
 except OSError: pass
 ip.setdefault('plugins', {})
-ip['plugins']['ccflux@ccflux'] = [{'scope':'user','installPath':plugin_dest,'version':'0.1.0','installedAt':ts,'lastUpdated':ts}]
+entry = {'scope':'user','installPath':plugin_dest,'version':'0.1.0','installedAt':ts,'lastUpdated':ts}
+if git_sha: entry['gitCommitSha'] = git_sha
+ip['plugins']['ccflux@ccflux'] = [entry]
 with open(installed_j, 'w') as f: json.dump(ip, f, indent=2); f.write('\n')
 
 # settings.json
@@ -180,22 +201,27 @@ _reg_node() {
 
     CCFLUX_INSTALL_DIR="$install_dir" \
     CCFLUX_PLUGIN_DEST="$plugin_dest" \
+    CCFLUX_SCRIPT_DIR="${SCRIPT_DIR}" \
     CCFLUX_TIMESTAMP="$now" \
     CCFLUX_OFFLINE="${OFFLINE}" \
     "$nodebin" -e "
-const fs=require('fs'),path=require('path'),e=process.env;
-const idir=e.CCFLUX_INSTALL_DIR,dest=e.CCFLUX_PLUGIN_DEST,ts=e.CCFLUX_TIMESTAMP,offline=e.CCFLUX_OFFLINE==='true';
+const fs=require('fs'),path=require('path'),cp=require('child_process'),e=process.env;
+const idir=e.CCFLUX_INSTALL_DIR,dest=e.CCFLUX_PLUGIN_DEST,sdir=e.CCFLUX_SCRIPT_DIR,ts=e.CCFLUX_TIMESTAMP,offline=e.CCFLUX_OFFLINE==='true';
 const pdir=path.join(idir,'plugins');
 const mktDir=path.join(pdir,'marketplaces','ccflux');
 const mktCp=path.join(mktDir,'.claude-plugin');
 const knownJ=path.join(pdir,'known_marketplaces.json');
-function rmrf(d){try{fs.rmSync(d,{recursive:true,force:true});}catch(_){}}
 function readJ(p){try{return JSON.parse(fs.readFileSync(p,'utf8'));}catch(_){return null;}}
 function writeJ(p,d){fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n');}
+function git(...args){try{return cp.execSync('git -C '+JSON.stringify(sdir)+' '+args.join(' '),{stdio:['pipe','pipe','pipe']}).toString().trim();}catch(_){return '';}}
+
+let gitSha=null,gitRef='main';
+if(offline){try{const s=git('rev-parse HEAD');if(s)gitSha=s;const r=git('rev-parse --abbrev-ref HEAD');if(r)gitRef=r;}catch(_){}}
 
 if(offline){
   [mktCp,path.join(mktDir,'plugins','ccflux')].forEach(d=>{try{fs.mkdirSync(d,{recursive:true});}catch(_){}});
-  const offcat={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'ccflux',description:'ccflux — per-turn token usage telemetry for Claude Code',owner:{name:'Psy-Fer',email:'j.ferguson@garvan.org.au'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation\\'s self-hosted receiver.',author:{name:'Psy-Fer'},category:'monitoring',source:{source:'directory',path:dest},homepage:'https://github.com/psy-fer/ccflux'}]};
+  const src=gitSha?{source:'git-subdir',url:'file://'+sdir,path:'plugin',ref:gitRef}:{source:'directory',path:dest};
+  const offcat={'\$schema':'https://anthropic.com/claude-code/marketplace.schema.json',name:'ccflux',description:'ccflux — per-turn token usage telemetry for Claude Code',owner:{name:'Psy-Fer',email:'j.ferguson@garvan.org.au'},plugins:[{name:'ccflux',description:'Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation\\'s self-hosted receiver.',author:{name:'Psy-Fer'},category:'monitoring',source:src,homepage:'https://github.com/psy-fer/ccflux'}]};
   writeJ(path.join(mktCp,'marketplace.json'),offcat);
   const km=readJ(knownJ)||{};
   km['ccflux']={source:{source:'directory',path:mktDir},installLocation:mktDir,lastUpdated:ts};
@@ -212,7 +238,8 @@ if(offline){
 const ipJ=path.join(pdir,'installed_plugins.json');
 let ip={version:2,plugins:{}};try{ip=JSON.parse(fs.readFileSync(ipJ,'utf8'));}catch(_){}
 if(!ip.plugins)ip.plugins={};
-ip.plugins['ccflux@ccflux']=[{scope:'user',installPath:dest,version:'0.1.0',installedAt:ts,lastUpdated:ts}];
+const ientry={scope:'user',installPath:dest,version:'0.1.0',installedAt:ts,lastUpdated:ts};if(gitSha)ientry.gitCommitSha=gitSha;
+ip.plugins['ccflux@ccflux']=[ientry];
 fs.writeFileSync(ipJ,JSON.stringify(ip,null,2)+'\n');
 
 const sJ=path.join(idir,'settings.json');
@@ -231,21 +258,36 @@ _reg_powershell() {
 $ErrorActionPreference = 'Stop'
 $idir    = $env:CCFLUX_INSTALL_DIR
 $dest    = $env:CCFLUX_PLUGIN_DEST
+$sdir    = $env:CCFLUX_SCRIPT_DIR
 $ts      = $env:CCFLUX_TIMESTAMP
 $offline = $env:CCFLUX_OFFLINE -eq 'true'
 $pdir    = Join-Path $idir 'plugins'
 $mktDir  = Join-Path $pdir 'marketplaces\ccflux'
 $knownJ  = Join-Path $pdir 'known_marketplaces.json'
 
+$GitSha = $null
+$GitRef = 'main'
+if ($offline -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    $sha = & git -C $sdir rev-parse HEAD 2>$null
+    $ref = & git -C $sdir rev-parse --abbrev-ref HEAD 2>$null
+    if ($sha) { $GitSha = $sha.Trim() }
+    if ($ref -and $ref.Trim()) { $GitRef = $ref.Trim() }
+}
+
 if ($offline) {
     New-Item -ItemType Directory -Path (Join-Path $mktDir '.claude-plugin') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $mktDir 'plugins\ccflux')  -Force | Out-Null
+    if ($GitSha) {
+        $pluginSrc = [ordered]@{source='git-subdir'; url=('file:///'+$sdir.Replace('\','/')); path='plugin'; ref=$GitRef}
+    } else {
+        $pluginSrc = [ordered]@{source='directory'; path=$dest}
+    }
     $pe = [ordered]@{
         name        = 'ccflux'
         description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
         author      = @{name='Psy-Fer'}
         category    = 'monitoring'
-        source      = [ordered]@{source='directory';path=$dest}
+        source      = $pluginSrc
         homepage    = 'https://github.com/psy-fer/ccflux'
     }
     $catalog = [ordered]@{
@@ -293,7 +335,9 @@ $ipJ = Join-Path $pdir 'installed_plugins.json'
 if (Test-Path $ipJ) { $ip = Get-Content $ipJ -Raw | ConvertFrom-Json }
 else { $ip = [PSCustomObject]@{version=2;plugins=[PSCustomObject]@{}} }
 if (-not $ip.PSObject.Properties['plugins']) { $ip | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([PSCustomObject]@{}) -Force }
-$entry = @([PSCustomObject]@{scope='user';installPath=$dest;version='0.1.0';installedAt=$ts;lastUpdated=$ts})
+$entryObj = [PSCustomObject]@{scope='user';installPath=$dest;version='0.1.0';installedAt=$ts;lastUpdated=$ts}
+if ($null -ne $GitSha) { $entryObj | Add-Member -NotePropertyName 'gitCommitSha' -NotePropertyValue $GitSha -Force }
+$entry = @($entryObj)
 $ip.plugins | Add-Member -NotePropertyName 'ccflux@ccflux' -NotePropertyValue $entry -Force
 $ip | ConvertTo-Json -Depth 10 | Set-Content $ipJ -Encoding UTF8
 
@@ -311,6 +355,7 @@ PSEOF
 
     CCFLUX_INSTALL_DIR="$(_win_path "$install_dir")" \
     CCFLUX_PLUGIN_DEST="$(_win_path "$plugin_dest")" \
+    CCFLUX_SCRIPT_DIR="$(_win_path "$SCRIPT_DIR")" \
     CCFLUX_TIMESTAMP="$now" \
     CCFLUX_OFFLINE="${OFFLINE}" \
     "$psbin" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(_win_path "$tmp")"

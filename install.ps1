@@ -222,23 +222,42 @@ if ($Offline) {
 # ── Register plugin in CC's plugin registry ───────────────────────────────────
 
 function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
-    $PluginsDir   = Join-Path $InstallDir "plugins"
+    $PluginsDir    = Join-Path $InstallDir "plugins"
     $InstalledJson = Join-Path $PluginsDir "installed_plugins.json"
     $SettingsJson  = Join-Path $InstallDir "settings.json"
     $KnownJson     = Join-Path $PluginsDir "known_marketplaces.json"
     $MktDir        = Join-Path $PluginsDir "marketplaces\ccflux"
-    $Now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    $Now           = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+
+    # ── Offline: use the install-script's own git repo as a local git-subdir source ──
+    # git-subdir is universally supported by CC; file:// URLs work without internet.
+    $GitSha = $null
+    $GitRef = 'main'
+    if ($Offline -and (Get-Command git -ErrorAction SilentlyContinue)) {
+        $sha = & git -C $ScriptDir rev-parse HEAD 2>$null
+        $ref = & git -C $ScriptDir rev-parse --abbrev-ref HEAD 2>$null
+        if ($sha) { $GitSha = $sha.Trim() }
+        if ($ref -and $ref.Trim()) { $GitRef = $ref.Trim() }
+    } elseif ($Offline) {
+        Write-Yellow "  warning: git not found — offline install requires git on PATH"
+    }
 
     # Marketplace catalog and registry
     if ($Offline) {
         New-Item -ItemType Directory -Path (Join-Path $MktDir '.claude-plugin') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $MktDir 'plugins\ccflux')  -Force | Out-Null
+        if ($GitSha) {
+            $repoUrl = "file:///" + $ScriptDir.Replace('\', '/')
+            $pluginSource = [ordered]@{source='git-subdir'; url=$repoUrl; path='plugin'; ref=$GitRef}
+        } else {
+            $pluginSource = [ordered]@{source='directory'; path=$PluginDest}
+        }
         $pe = [ordered]@{
             name        = 'ccflux'
             description = "Per-turn token usage telemetry for Claude Code. Ships usage metadata to your organisation's self-hosted receiver."
             author      = @{name='Psy-Fer'}
             category    = 'monitoring'
-            source      = [ordered]@{source='directory';path=$PluginDest}
+            source      = $pluginSource
             homepage    = 'https://github.com/psy-fer/ccflux'
         }
         $catalog = [ordered]@{
@@ -292,7 +311,11 @@ function Register-Plugin ([string]$InstallDir, [string]$PluginDest) {
     if ($null -eq $ipData.PSObject.Properties['plugins']) {
         $ipData | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([PSCustomObject]@{}) -Force
     }
-    $entry = @([PSCustomObject]@{ scope='user'; installPath=$PluginDest; version='0.1.0'; installedAt=$Now; lastUpdated=$Now })
+    $entryObj = [PSCustomObject]@{ scope='user'; installPath=$PluginDest; version='0.1.0'; installedAt=$Now; lastUpdated=$Now }
+    if ($null -ne $GitSha) {
+        $entryObj | Add-Member -NotePropertyName 'gitCommitSha' -NotePropertyValue $GitSha -Force
+    }
+    $entry = @($entryObj)
     $ipData.plugins | Add-Member -NotePropertyName 'ccflux@ccflux' -NotePropertyValue $entry -Force
     $ipData | ConvertTo-Json -Depth 10 | Set-Content $InstalledJson -Encoding UTF8
     Write-Host "  updated  plugins\installed_plugins.json  (ccflux@ccflux)"
