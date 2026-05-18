@@ -22,7 +22,10 @@ pub fn get_access_token(
 
     let token_url = token_endpoint(report_endpoint);
     match exchange(data_dir, &token_url, refresh_token) {
-        Ok(access_token) => Some(access_token),
+        Ok(access_token) => {
+            offset::log_activity(data_dir, "token: access token refreshed ok");
+            Some(access_token)
+        }
         Err(e) => {
             offset::log_error(data_dir, &format!("token refresh failed: {e}"));
             None

@@ -157,6 +157,14 @@ fn run_report(input: &str, is_session_end: bool) {
     if signing::is_registered(&data_dir) {
         match report::post(&endpoint, &access_token, &body, &device_key) {
             ReportStatus::Accepted => {
+                offset::log_activity(
+                    &data_dir,
+                    &format!(
+                        "report: turn {} session {}… sent ok",
+                        payload.turn_index,
+                        &hook.session_id[..8]
+                    ),
+                );
                 advance_offset(
                     &data_dir,
                     &hook.session_id,
@@ -208,6 +216,14 @@ fn run_report(input: &str, is_session_end: bool) {
     } else {
         // Key not yet registered: store locally and advance offset.
         queue::enqueue(&queue_path, &body);
+        offset::log_activity(
+            &data_dir,
+            &format!(
+                "report: turn {} session {}… queued (key not yet registered)",
+                payload.turn_index,
+                &hook.session_id[..8]
+            ),
+        );
         advance_offset(
             &data_dir,
             &hook.session_id,
@@ -222,7 +238,9 @@ fn drain_one_queued(data_dir: &Path, endpoint: &str, access_token: &str, key: &s
     let queue_path = offset::pending_reports_path(data_dir);
     if let Some(queued_body) = queue::drain_one(&queue_path) {
         match report::post(endpoint, access_token, &queued_body, key) {
-            ReportStatus::Accepted => {}
+            ReportStatus::Accepted => {
+                offset::log_activity(data_dir, "report: drained 1 queued report ok");
+            }
             ReportStatus::TimestampStale => {
                 // The queued payload's event time may be old, but the HTTP timestamp
                 // we send is always fresh. If the receiver still rejects it, discard —
@@ -291,6 +309,13 @@ fn resolve_credentials(data_dir: &Path) -> Option<(String, String)> {
     }
 
     if endpoint.is_empty() || refresh_token.is_empty() {
+        offset::log_activity(
+            data_dir,
+            &format!(
+                "no credentials — create {} with endpoint and token to enable reporting",
+                offset::config_path(data_dir).display()
+            ),
+        );
         return None;
     }
 

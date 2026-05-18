@@ -366,6 +366,7 @@ pub struct AdminDailyStat {
 pub struct AdminRecentEvent {
     pub received_at: String,
     pub user_email: String,
+    pub device_id: String,
     pub session_id: String,
     pub turn_index: i64,
     pub model: String,
@@ -508,7 +509,12 @@ pub async fn admin_daily_stats(pool: &SqlitePool) -> Result<Vec<AdminDailyStat>,
 pub async fn admin_recent_events(pool: &SqlitePool) -> Result<Vec<AdminRecentEvent>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT received_at, user_email, session_id, turn_index, model,
-                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                COALESCE((
+                    SELECT device_id FROM device_keys
+                    WHERE email = user_email AND revoked = 0
+                    ORDER BY last_seen_at DESC LIMIT 1
+                ), '') as device_id
          FROM usage_events
          ORDER BY received_at DESC
          LIMIT 50",
@@ -520,6 +526,7 @@ pub async fn admin_recent_events(pool: &SqlitePool) -> Result<Vec<AdminRecentEve
         .map(|r| AdminRecentEvent {
             received_at: r.get("received_at"),
             user_email: r.get("user_email"),
+            device_id: r.get("device_id"),
             session_id: r.get("session_id"),
             turn_index: r.get("turn_index"),
             model: r.get("model"),

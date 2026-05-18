@@ -27,3 +27,8 @@ plugin/bin
 
 # mdbook build output
 docs/book
+
+# SQLite databases (dev/test artifacts — real DB path set via DATABASE_PATH)
+*.db
+*.db-shm
+*.db-wal

@@ -373,7 +373,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
     );
 
     let event_rows: String = if recent.is_empty() {
-        r#"<tr><td colspan="9" class="empty">No events yet</td></tr>"#.to_string()
+        r#"<tr><td colspan="10" class="empty">No events yet</td></tr>"#.to_string()
     } else {
         recent
             .iter()
@@ -383,6 +383,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
   <td class="mono sm">{}</td>
   <td>{}</td>
   <td class="mono sm">{}</td>
+  <td class="mono sm">{}</td>
   <td class="num">{}</td>
   <td class="mono sm">{}</td>
   <td class="num">{}</td><td class="num">{}</td>
@@ -390,6 +391,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
 </tr>"#,
                     ts(&e.received_at),
                     esc(&e.user_email),
+                    esc(&e.device_id),
                     esc(&e.session_id[..8]),
                     e.turn_index,
                     esc(&e.model),
@@ -407,7 +409,7 @@ pub async fn handle_dashboard(State(state): State<AppState>, headers: HeaderMap)
   <div class="panel-head" onclick="togglePanel('p-events')">Recent events — last 50 <span class="chv">&#9660;</span></div>
   <table>
     <thead><tr>
-      <th>Received</th><th>User</th><th>Session</th><th>Turn</th>
+      <th>Received</th><th>User</th><th>Device</th><th>Session</th><th>Turn</th>
       <th>Model</th><th>Input</th><th>Output</th><th>Cache reads</th><th>Cache writes</th>
     </tr></thead>
     <tbody>{event_rows}</tbody>

@@ -51,14 +51,39 @@ pub fn init_offset(data_dir: &Path, session_id: &str, session_start: &str) -> st
     write_offset(data_dir, session_id, &state)
 }
 
-pub fn log_error(data_dir: &Path, msg: &str) {
-    let path = error_log_path(data_dir);
+pub fn activity_log_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("ccflux").join("activity.log")
+}
+
+fn append_log(path: &Path, line: &str) {
     let _ = fs::create_dir_all(path.parent().unwrap());
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    let line = format!("[{timestamp}] {msg}\n");
-    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = f.write_all(line.as_bytes());
     }
+    // Cap at ~64 KB: keep the last half when exceeded.
+    if let Ok(meta) = fs::metadata(path) {
+        if meta.len() > 65536 {
+            if let Ok(content) = fs::read_to_string(path) {
+                let lines: Vec<&str> = content.lines().collect();
+                let keep = lines.len() / 2;
+                let trimmed = lines[lines.len() - keep..].join("\n") + "\n";
+                let _ = fs::write(path, trimmed);
+            }
+        }
+    }
+}
+
+pub fn log_error(data_dir: &Path, msg: &str) {
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let line = format!("[{timestamp}] {msg}\n");
+    append_log(&error_log_path(data_dir), &line);
+    append_log(&activity_log_path(data_dir), &format!("[{timestamp}] ERROR {msg}\n"));
+}
+
+pub fn log_activity(data_dir: &Path, msg: &str) {
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let line = format!("[{timestamp}] {msg}\n");
+    append_log(&activity_log_path(data_dir), &line);
 }
 
 /// Sets file permissions to owner-read/write only (0600 on Unix). No-op elsewhere.
