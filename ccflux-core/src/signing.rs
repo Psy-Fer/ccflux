@@ -129,9 +129,11 @@ pub fn try_register(
 }
 
 fn register_key_endpoint(report_endpoint: &str) -> String {
-    match report_endpoint.rfind('/') {
-        Some(i) => format!("{}/register-key", &report_endpoint[..i]),
-        None => format!("{report_endpoint}/register-key"),
+    if report_endpoint.matches('/').count() > 2 {
+        let pos = report_endpoint.rfind('/').unwrap();
+        format!("{}/register-key", &report_endpoint[..pos])
+    } else {
+        format!("{report_endpoint}/register-key")
     }
 }
 

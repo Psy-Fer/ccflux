@@ -20,6 +20,16 @@ fn sanitize_header(s: &str) -> String {
         .collect()
 }
 
+/// Derives the /report URL from the configured endpoint.
+/// Accepts either a base URL ("https://host") or a full report URL ("https://host/report").
+fn report_url(endpoint: &str) -> String {
+    if endpoint.matches('/').count() > 2 {
+        endpoint.to_string()
+    } else {
+        format!("{endpoint}/report")
+    }
+}
+
 pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportStatus {
     let allow_http = std::env::var("CCFLUX_ALLOW_HTTP").as_deref() == Ok("1");
     if !allow_http && !endpoint.starts_with("https://") {
@@ -28,6 +38,7 @@ pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportS
         ));
     }
 
+    let url = report_url(endpoint);
     let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let signature = key.sign(body.as_bytes(), &timestamp);
     let sig_header = format!("ed25519 {} {}", signature, key.public_key_b64());
@@ -38,7 +49,7 @@ pub fn post(endpoint: &str, token: &str, body: &str, key: &DeviceKey) -> ReportS
         .build();
 
     match agent
-        .post(endpoint)
+        .post(&url)
         .set("Authorization", &format!("Bearer {token}"))
         .set("Content-Type", "application/json")
         .set("X-CCFLUX-Signature", &sig_header)
